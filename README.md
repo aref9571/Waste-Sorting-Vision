@@ -40,4 +40,10 @@ wastevision version
 
 ## Dataset
 
-The models are trained on the TrashNet dataset. See [NOTICE.md](NOTICE.md) for the credit and licence.
+The models are trained on the TrashNet dataset. Download it (about 43 MB, checked against a SHA-256 checksum) into `data/raw/`:
+
+```bash
+wastevision data download
+```
+
+See [docs/dataset.md](docs/dataset.md) for the source, checksum, class counts and known bias, and [NOTICE.md](NOTICE.md) for the credit and licence.
