@@ -1,7 +1,12 @@
+from pathlib import Path
+
+import pytest
 from typer.testing import CliRunner
 
-from wastevision import __version__
+from wastevision import __version__, cli
 from wastevision.cli import app
+from wastevision.data.download import EXPECTED_IMAGE_COUNTS, ChecksumMismatchError
+from wastevision.labels import CLASS_NAMES
 
 runner = CliRunner()
 
@@ -17,3 +22,55 @@ def test_unknown_command_fails():
     result = runner.invoke(app, ["does-not-exist"])
 
     assert result.exit_code != 0
+
+
+def create_class_folders(images_dir: Path, images_per_class: dict[str, int]) -> None:
+    for class_name, count in images_per_class.items():
+        class_dir = images_dir / class_name
+        class_dir.mkdir(parents=True)
+        for index in range(count):
+            (class_dir / f"{class_name}{index}.jpg").write_bytes(b"x")
+
+
+def test_data_download_prints_counts_per_class(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    images_dir = tmp_path / "images"
+    create_class_folders(images_dir, dict.fromkeys(CLASS_NAMES, 2))
+    received_dirs = []
+
+    def fake_download_dataset(raw_dir: Path) -> Path:
+        received_dirs.append(raw_dir)
+        return images_dir
+
+    monkeypatch.setattr(cli, "download_dataset", fake_download_dataset)
+
+    result = runner.invoke(app, ["data", "download", "--raw-dir", str(tmp_path / "raw")])
+
+    assert result.exit_code == 0
+    assert received_dirs == [tmp_path / "raw"]
+    assert "glass: 2" in result.stdout
+    assert "total: 12" in result.stdout
+    assert "Warning: glass has 2 images, expected 501." in result.stdout
+
+
+def test_data_download_reports_errors(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    def failing_download_dataset(raw_dir: Path) -> Path:
+        raise ChecksumMismatchError("bad checksum")
+
+    monkeypatch.setattr(cli, "download_dataset", failing_download_dataset)
+
+    result = runner.invoke(app, ["data", "download", "--raw-dir", str(tmp_path)])
+
+    assert result.exit_code == 1
+    assert "Error: bad checksum" in result.stderr
+
+
+def test_data_download_confirms_published_counts(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(cli, "download_dataset", lambda raw_dir: tmp_path)
+    monkeypatch.setattr(cli, "count_images_per_class", lambda images_dir: EXPECTED_IMAGE_COUNTS)
+
+    result = runner.invoke(app, ["data", "download", "--raw-dir", str(tmp_path)])
+
+    assert result.exit_code == 0
+    assert "total: 2527" in result.stdout
+    assert "Counts match the published TrashNet counts." in result.stdout
+    assert "Warning" not in result.stdout
