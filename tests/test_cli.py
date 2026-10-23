@@ -5,7 +5,7 @@ from typer.testing import CliRunner
 
 from wastevision import __version__, cli
 from wastevision.cli import app
-from wastevision.data.download import EXPECTED_IMAGE_COUNTS, ChecksumMismatchError
+from wastevision.data.download import EXPECTED_IMAGE_COUNTS, ChecksumMismatchError, sha256_of_file
 from wastevision.labels import CLASS_NAMES
 
 runner = CliRunner()
@@ -74,3 +74,52 @@ def test_data_download_confirms_published_counts(tmp_path: Path, monkeypatch: py
     assert "total: 2527" in result.stdout
     assert "Counts match the published TrashNet counts." in result.stdout
     assert "Warning" not in result.stdout
+
+
+def create_distinct_images(images_dir: Path, images_per_class: int) -> None:
+    for class_name in CLASS_NAMES:
+        class_dir = images_dir / class_name
+        class_dir.mkdir(parents=True)
+        for index in range(images_per_class):
+            (class_dir / f"{class_name}{index}.jpg").write_text(f"{class_name}{index}")
+
+
+def test_data_split_writes_csv_and_prints_counts(tmp_path: Path):
+    images_dir = tmp_path / "images"
+    create_distinct_images(images_dir, 20)
+    output = tmp_path / "splits" / "split.csv"
+
+    result = runner.invoke(
+        app, ["data", "split", "--images-dir", str(images_dir), "--output", str(output)]
+    )
+
+    assert result.exit_code == 0
+    assert "glass" in result.stdout
+    assert f"Wrote 120 images to {output}" in result.stdout
+    assert f"SHA-256: {sha256_of_file(output)}" in result.stdout
+    assert len(output.read_text().splitlines()) == 121
+
+
+def test_data_split_reports_excluded_images(tmp_path: Path):
+    images_dir = tmp_path / "images"
+    create_distinct_images(images_dir, 20)
+    (images_dir / "metal" / "metal0.jpg").write_text("glass0")
+
+    result = runner.invoke(
+        app,
+        ["data", "split", "--images-dir", str(images_dir), "--output", str(tmp_path / "s.csv")],
+    )
+
+    assert result.exit_code == 0
+    assert "Excluded glass/glass0.jpg: identical image with another class label." in result.stdout
+    assert "Excluded metal/metal0.jpg: identical image with another class label." in result.stdout
+    assert "Wrote 118 images" in result.stdout
+
+
+def test_data_split_reports_errors(tmp_path: Path):
+    result = runner.invoke(
+        app, ["data", "split", "--images-dir", str(tmp_path), "--output", str(tmp_path / "s.csv")]
+    )
+
+    assert result.exit_code == 1
+    assert "Error: Missing class folder" in result.stderr
