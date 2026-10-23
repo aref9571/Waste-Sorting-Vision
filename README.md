@@ -53,3 +53,14 @@ wastevision data split
 ```
 
 See [docs/dataset.md](docs/dataset.md) for the source, checksum, class counts and known bias, and [NOTICE.md](NOTICE.md) for the credit and licence.
+
+## Classical baseline
+
+A classical image-processing baseline (HSV colour histogram, local binary patterns and HOG features with a logistic regression or RBF SVM) sets the reference point for the neural network. It needs the `train` extra and the downloaded dataset:
+
+```bash
+wastevision baseline train
+wastevision baseline evaluate
+```
+
+On the test split it reaches an accuracy of 0.730 and a macro-F1 of 0.720. See [docs/evaluation.md](docs/evaluation.md) for the features, the model selection on validation and the per-class results.
