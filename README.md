@@ -46,4 +46,10 @@ The models are trained on the TrashNet dataset. Download it (about 43 MB, checke
 wastevision data download
 ```
 
+The fixed train/validation/test split is committed as [splits/trashnet-split.csv](splits/trashnet-split.csv). It can be rebuilt from the downloaded images with:
+
+```bash
+wastevision data split
+```
+
 See [docs/dataset.md](docs/dataset.md) for the source, checksum, class counts and known bias, and [NOTICE.md](NOTICE.md) for the credit and licence.
