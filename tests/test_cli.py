@@ -1,3 +1,5 @@
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -123,3 +125,70 @@ def test_data_split_reports_errors(tmp_path: Path):
 
     assert result.exit_code == 1
     assert "Error: Missing class folder" in result.stderr
+
+
+def test_cli_import_does_not_load_training_libraries():
+    code = "import sys, wastevision.cli; print('sklearn' in sys.modules, 'skimage' in sys.modules)"
+
+    completed = subprocess.run(
+        [sys.executable, "-c", code], capture_output=True, text=True, check=True
+    )
+
+    assert completed.stdout.strip() == "False False"
+
+
+def test_baseline_train_then_evaluate(tiny_dataset: tuple[Path, Path], tmp_path: Path):
+    images_dir, split_path = tiny_dataset
+    model_path = tmp_path / "runs" / "model.joblib"
+    options = [
+        "--images-dir",
+        str(images_dir),
+        "--split",
+        str(split_path),
+        "--model",
+        str(model_path),
+    ]
+
+    train_result = runner.invoke(app, ["baseline", "train", *options])
+
+    assert train_result.exit_code == 0
+    assert "logistic_regression" in train_result.stdout
+    assert "svm_rbf" in train_result.stdout
+    assert "Best on validation:" in train_result.stdout
+    assert f"Saved pipeline to {model_path}" in train_result.stdout
+    assert model_path.is_file()
+
+    evaluate_result = runner.invoke(app, ["baseline", "evaluate", *options])
+
+    assert evaluate_result.exit_code == 0
+    assert "Test split (6 images):" in evaluate_result.stdout
+    assert "macro-F1:" in evaluate_result.stdout
+    assert "trash" in evaluate_result.stdout
+
+
+def test_baseline_train_reports_errors(tmp_path: Path):
+    result = runner.invoke(app, ["baseline", "train", "--split", str(tmp_path / "missing.csv")])
+
+    assert result.exit_code == 1
+    assert "Error:" in result.stderr
+
+
+def test_baseline_evaluate_reports_missing_model(tiny_dataset: tuple[Path, Path], tmp_path: Path):
+    images_dir, split_path = tiny_dataset
+
+    result = runner.invoke(
+        app,
+        [
+            "baseline",
+            "evaluate",
+            "--images-dir",
+            str(images_dir),
+            "--split",
+            str(split_path),
+            "--model",
+            str(tmp_path / "missing.joblib"),
+        ],
+    )
+
+    assert result.exit_code == 1
+    assert "Run 'wastevision baseline train' first." in result.stderr
