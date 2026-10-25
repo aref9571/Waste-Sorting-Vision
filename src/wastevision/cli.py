@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING, Annotated
 import typer
 
 from wastevision import __version__
-from wastevision.data.dataset import SplitFileError
+from wastevision.data.dataset import SplitFileError, load_image_records
 from wastevision.data.download import (
     DEFAULT_RAW_DIR,
     IMAGES_DIR_NAME,
@@ -36,6 +36,7 @@ app.add_typer(baseline_app, name="baseline")
 
 DEFAULT_IMAGES_DIR = DEFAULT_RAW_DIR / IMAGES_DIR_NAME
 DEFAULT_MODEL_PATH = Path("runs/baseline/model.joblib")
+DEFAULT_PREVIEW_PATH = Path("docs/img/augmentations.png")
 
 
 @app.callback()
@@ -94,6 +95,26 @@ def split(
         typer.echo(f"{class_name:<10} " + " ".join(f"{counts[name]:>10}" for name in SPLIT_NAMES))
     typer.echo(f"Wrote {len(result.entries)} images to {output}")
     typer.echo(f"SHA-256: {sha256_of_file(output)}")
+
+
+@data_app.command("preview")
+def preview(
+    images_dir: Annotated[
+        Path, typer.Option(help="Folder with one subfolder of images per class.")
+    ] = DEFAULT_IMAGES_DIR,
+    split_path: Annotated[Path, typer.Option("--split", help="Split CSV.")] = DEFAULT_SPLIT_PATH,
+    output: Annotated[Path, typer.Option(help="PNG file to write.")] = DEFAULT_PREVIEW_PATH,
+) -> None:
+    from wastevision.data.preview import first_record_per_class, save_augmentation_preview
+
+    try:
+        records = first_record_per_class(load_image_records(split_path, images_dir, "train"))
+        save_augmentation_preview(records, output)
+    except (SplitFileError, ValueError, OSError) as error:
+        typer.echo(f"Error: {error}", err=True)
+        raise typer.Exit(code=1) from error
+
+    typer.echo(f"Wrote augmentation preview of {len(records)} images to {output}")
 
 
 def echo_evaluation(result: "EvaluationResult") -> None:

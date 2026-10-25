@@ -128,13 +128,14 @@ def test_data_split_reports_errors(tmp_path: Path):
 
 
 def test_cli_import_does_not_load_training_libraries():
-    code = "import sys, wastevision.cli; print('sklearn' in sys.modules, 'skimage' in sys.modules)"
+    libraries = ("sklearn", "skimage", "torch", "torchvision", "matplotlib")
+    code = f"import sys, wastevision.cli; print([name in sys.modules for name in {libraries!r}])"
 
     completed = subprocess.run(
         [sys.executable, "-c", code], capture_output=True, text=True, check=True
     )
 
-    assert completed.stdout.strip() == "False False"
+    assert completed.stdout.strip() == str([False] * len(libraries))
 
 
 def test_baseline_train_then_evaluate(tiny_dataset: tuple[Path, Path], tmp_path: Path):
@@ -192,3 +193,38 @@ def test_baseline_evaluate_reports_missing_model(tiny_dataset: tuple[Path, Path]
 
     assert result.exit_code == 1
     assert "Run 'wastevision baseline train' first." in result.stderr
+
+
+def test_data_preview_writes_augmentation_grid(tiny_dataset: tuple[Path, Path], tmp_path: Path):
+    pytest.importorskip("torch")
+    pytest.importorskip("matplotlib")
+    images_dir, split_path = tiny_dataset
+    output = tmp_path / "augmentations.png"
+
+    result = runner.invoke(
+        app,
+        [
+            "data",
+            "preview",
+            "--images-dir",
+            str(images_dir),
+            "--split",
+            str(split_path),
+            "--output",
+            str(output),
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert output.is_file()
+    assert f"Wrote augmentation preview of {len(CLASS_NAMES)} images" in result.stdout
+
+
+def test_data_preview_reports_errors(tmp_path: Path):
+    pytest.importorskip("torch")
+    pytest.importorskip("matplotlib")
+
+    result = runner.invoke(app, ["data", "preview", "--split", str(tmp_path / "missing.csv")])
+
+    assert result.exit_code == 1
+    assert "Error:" in result.stderr

@@ -56,6 +56,7 @@ select = ["E", "W", "F", "I", "B", "UP", "SIM", "N", "C4", "PT", "RUF"]
 [tool.ruff.lint.per-file-ignores]
 "tests/test_transforms.py" = ["E402"]
 "tests/test_image_dataset.py" = ["E402"]
+"tests/test_preview.py" = ["E402"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
