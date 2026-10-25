@@ -133,3 +133,28 @@ Check it with:
 ```bash
 sha256sum splits/trashnet-split.csv
 ```
+
+## Preprocessing for the neural network
+
+The network sees 224 × 224 RGB images, normalised with the ImageNet mean `(0.485, 0.456, 0.406)` and standard deviation `(0.229, 0.224, 0.225)` that the pretrained MobileNetV3 weights expect. These numbers live in `src/wastevision/config.py` only, because the web service must prepare images exactly the same way.
+
+Validation, test and served images use a fixed transform: resize the shorter side to 256 pixels, crop the central 224 × 224 square, normalise. The same image always gives the same tensor.
+
+Training images are augmented, so every epoch sees a slightly different version of each photo:
+
+| Step | Setting |
+|---|---|
+| Random resized crop to 224 × 224 | 70 % to 100 % of the image area |
+| Horizontal flip | probability 0.5 |
+| Rotation | up to ±10° |
+| Colour jitter | brightness, contrast and saturation ±20 %, hue ±0.02 |
+
+![One training image per class (left) and five augmented versions of it](img/augmentations.png)
+
+Rebuild the preview (needs the `train` extra and the downloaded dataset):
+
+```bash
+wastevision data preview
+```
+
+The number of worker processes that load images in parallel is read from the environment variable `WASTEVISION_NUM_WORKERS` (default 0, which loads images in the main process).

@@ -54,6 +54,12 @@ wastevision data split
 
 See [docs/dataset.md](docs/dataset.md) for the source, checksum, class counts and known bias, and [NOTICE.md](NOTICE.md) for the credit and licence.
 
+For the neural network, images are resized and cropped to 224 × 224 pixels and normalised with the ImageNet statistics; training images are also randomly cropped, flipped, rotated and colour-shifted. The preprocessing section of [docs/dataset.md](docs/dataset.md) lists the settings and shows examples, which can be recreated with:
+
+```bash
+wastevision data preview
+```
+
 ## Classical baseline
 
 A classical image-processing baseline (HSV colour histogram, local binary patterns and HOG features with a logistic regression or RBF SVM) sets the reference point for the neural network. It needs the `train` extra and the downloaded dataset:
