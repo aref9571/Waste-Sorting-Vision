@@ -1,3 +1,4 @@
+from enum import StrEnum
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated
 
@@ -27,6 +28,7 @@ from wastevision.data.split import (
 
 if TYPE_CHECKING:
     from wastevision.baseline.train import EvaluationResult
+    from wastevision.training.loop import EpochRecord
 
 app = typer.Typer(no_args_is_help=True)
 data_app = typer.Typer(no_args_is_help=True, help="Download and prepare the dataset.")
@@ -37,6 +39,12 @@ app.add_typer(baseline_app, name="baseline")
 DEFAULT_IMAGES_DIR = DEFAULT_RAW_DIR / IMAGES_DIR_NAME
 DEFAULT_MODEL_PATH = Path("runs/baseline/model.joblib")
 DEFAULT_PREVIEW_PATH = Path("docs/img/augmentations.png")
+DEFAULT_HEAD_CHECKPOINT = Path("runs/head/best.pt")
+
+
+class TrainingStage(StrEnum):
+    HEAD = "head"
+    FULL = "full"
 
 
 @app.callback()
@@ -191,3 +199,74 @@ def baseline_evaluate(
 
     typer.echo(f"Test split ({len(test_labels)} images):")
     echo_evaluation(evaluate(pipeline, test_features, test_labels))
+
+
+def echo_epoch(record: "EpochRecord") -> None:
+    typer.echo(
+        f"epoch {record.epoch:>3}  train loss {record.train.loss:.4f}"
+        f"  val loss {record.validation.loss:.4f}  val accuracy {record.validation.accuracy:.4f}"
+        f"  val macro-F1 {record.validation.macro_f1:.4f}  ({record.seconds:.0f} s)"
+    )
+
+
+@app.command()
+def train(
+    stage: Annotated[
+        TrainingStage,
+        typer.Option(help="head: train only the classifier; full: fine-tune every layer."),
+    ],
+    epochs: Annotated[
+        int | None,
+        typer.Option(min=1, help="Maximum number of epochs [default: 8 for head, 25 for full]."),
+    ] = None,
+    class_weights: Annotated[
+        bool, typer.Option(help="Weight the loss by inverse class frequency.")
+    ] = False,
+    images_dir: Annotated[
+        Path, typer.Option(help="Folder with one subfolder of images per class.")
+    ] = DEFAULT_IMAGES_DIR,
+    split_path: Annotated[Path, typer.Option("--split", help="Split CSV.")] = DEFAULT_SPLIT_PATH,
+    run_dir: Annotated[
+        Path | None, typer.Option(help="Folder for metrics.csv and best.pt [default: runs/STAGE].")
+    ] = None,
+    head_checkpoint: Annotated[
+        Path, typer.Option(help="Head checkpoint that the full stage starts from.")
+    ] = DEFAULT_HEAD_CHECKPOINT,
+) -> None:
+    from wastevision.training.train import FULL_EPOCHS, HEAD_EPOCHS, train_full, train_head
+
+    run_dir = run_dir or Path("runs") / stage.value
+    default_epochs = HEAD_EPOCHS if stage is TrainingStage.HEAD else FULL_EPOCHS
+    max_epochs = epochs or default_epochs
+    try:
+        if stage is TrainingStage.HEAD:
+            result = train_head(
+                images_dir,
+                split_path,
+                run_dir,
+                epochs=max_epochs,
+                use_class_weights=class_weights,
+                report=echo_epoch,
+            )
+        else:
+            result = train_full(
+                images_dir,
+                split_path,
+                head_checkpoint,
+                run_dir,
+                epochs=max_epochs,
+                use_class_weights=class_weights,
+                report=echo_epoch,
+            )
+    except (SplitFileError, ValueError, OSError) as error:
+        typer.echo(f"Error: {error}", err=True)
+        raise typer.Exit(code=1) from error
+
+    if len(result.history) < max_epochs:
+        typer.echo(f"Stopped early after {len(result.history)} epochs")
+    best = result.best_validation
+    typer.echo(
+        f"Best epoch {result.best_epoch}: val accuracy {best.accuracy:.4f},"
+        f" val macro-F1 {best.macro_f1:.4f}"
+    )
+    typer.echo(f"Saved checkpoint to {result.checkpoint_path}")

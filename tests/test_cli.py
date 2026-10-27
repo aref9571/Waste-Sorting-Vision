@@ -228,3 +228,117 @@ def test_data_preview_reports_errors(tmp_path: Path):
 
     assert result.exit_code == 1
     assert "Error:" in result.stderr
+
+
+def fake_fit_result(run_dir: Path, epochs: int):
+    from wastevision.training.loop import EpochMetrics, EpochRecord, FitResult
+
+    metrics = EpochMetrics(loss=0.5, accuracy=0.8, macro_f1=0.75)
+    history = [EpochRecord(epoch, metrics, metrics, 1.0) for epoch in range(1, epochs + 1)]
+    return FitResult(history, 1, metrics, run_dir / "best.pt")
+
+
+def test_train_head_uses_the_stage_defaults(monkeypatch: pytest.MonkeyPatch):
+    pytest.importorskip("torch")
+    calls = []
+
+    def fake_train_head(images_dir, split_path, run_dir, **options):
+        calls.append((run_dir, options))
+        options["report"](fake_fit_result(run_dir, 1).history[0])
+        return fake_fit_result(run_dir, options["epochs"])
+
+    monkeypatch.setattr("wastevision.training.train.train_head", fake_train_head)
+
+    result = runner.invoke(app, ["train", "--stage", "head"])
+
+    assert result.exit_code == 0, result.output
+    run_dir, options = calls[0]
+    assert run_dir == Path("runs/head")
+    assert options["epochs"] == 8
+    assert options["use_class_weights"] is False
+    assert "epoch   1" in result.stdout
+    assert "Best epoch 1: val accuracy 0.8000, val macro-F1 0.7500" in result.stdout
+    assert "Stopped early" not in result.stdout
+    assert f"Saved checkpoint to {Path('runs/head/best.pt')}" in result.stdout
+
+
+def test_train_full_passes_its_options(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
+    pytest.importorskip("torch")
+    calls = []
+
+    def fake_train_full(images_dir, split_path, head_checkpoint, run_dir, **options):
+        calls.append((head_checkpoint, run_dir, options))
+        return fake_fit_result(run_dir, 6)
+
+    monkeypatch.setattr("wastevision.training.train.train_full", fake_train_full)
+
+    result = runner.invoke(
+        app,
+        [
+            "train",
+            "--stage",
+            "full",
+            "--class-weights",
+            "--head-checkpoint",
+            str(tmp_path / "head.pt"),
+            "--run-dir",
+            str(tmp_path / "full"),
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    head_checkpoint, run_dir, options = calls[0]
+    assert head_checkpoint == tmp_path / "head.pt"
+    assert run_dir == tmp_path / "full"
+    assert options["epochs"] == 25
+    assert options["use_class_weights"] is True
+    assert "Stopped early after 6 epochs" in result.stdout
+
+
+def test_train_full_default_run_folder(monkeypatch: pytest.MonkeyPatch):
+    pytest.importorskip("torch")
+    calls = []
+
+    def fake_train_full(images_dir, split_path, head_checkpoint, run_dir, **options):
+        calls.append((head_checkpoint, run_dir, options["epochs"]))
+        return fake_fit_result(run_dir, options["epochs"])
+
+    monkeypatch.setattr("wastevision.training.train.train_full", fake_train_full)
+
+    result = runner.invoke(app, ["train", "--stage", "full", "--epochs", "3"])
+
+    assert result.exit_code == 0, result.output
+    assert calls == [(Path("runs/head/best.pt"), Path("runs/full"), 3)]
+
+
+def test_train_reports_a_missing_head_checkpoint(tiny_dataset: tuple[Path, Path], tmp_path: Path):
+    pytest.importorskip("torch")
+    images_dir, split_path = tiny_dataset
+
+    result = runner.invoke(
+        app,
+        [
+            "train",
+            "--stage",
+            "full",
+            "--images-dir",
+            str(images_dir),
+            "--split",
+            str(split_path),
+            "--head-checkpoint",
+            str(tmp_path / "missing.pt"),
+        ],
+    )
+
+    assert result.exit_code == 1
+    assert "Error: Head checkpoint" in result.stderr
+
+
+@pytest.mark.parametrize(
+    "arguments",
+    [["train"], ["train", "--stage", "middle"], ["train", "--stage", "head", "--epochs", "0"]],
+)
+def test_train_rejects_invalid_options(arguments: list[str]):
+    result = runner.invoke(app, arguments)
+
+    assert result.exit_code == 2
