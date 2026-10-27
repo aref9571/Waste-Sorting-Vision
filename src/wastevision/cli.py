@@ -40,6 +40,7 @@ DEFAULT_IMAGES_DIR = DEFAULT_RAW_DIR / IMAGES_DIR_NAME
 DEFAULT_MODEL_PATH = Path("runs/baseline/model.joblib")
 DEFAULT_PREVIEW_PATH = Path("docs/img/augmentations.png")
 DEFAULT_HEAD_CHECKPOINT = Path("runs/head/best.pt")
+DEFAULT_CURVES_PATH = Path("docs/img/training-curves.png")
 
 
 class TrainingStage(StrEnum):
@@ -270,3 +271,22 @@ def train(
         f" val macro-F1 {best.macro_f1:.4f}"
     )
     typer.echo(f"Saved checkpoint to {result.checkpoint_path}")
+
+
+@app.command()
+def curves(
+    run_dirs: Annotated[
+        list[Path],
+        typer.Option("--run", help="Run folder with a metrics.csv; repeat to join runs in order."),
+    ],
+    output: Annotated[Path, typer.Option(help="PNG file to write.")] = DEFAULT_CURVES_PATH,
+) -> None:
+    from wastevision.training.curves import save_training_curves
+
+    try:
+        save_training_curves(run_dirs, output)
+    except (ValueError, OSError) as error:
+        typer.echo(f"Error: {error}", err=True)
+        raise typer.Exit(code=1) from error
+
+    typer.echo(f"Wrote training curves to {output}")

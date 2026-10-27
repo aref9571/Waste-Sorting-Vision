@@ -342,3 +342,31 @@ def test_train_rejects_invalid_options(arguments: list[str]):
     result = runner.invoke(app, arguments)
 
     assert result.exit_code == 2
+
+
+def test_curves_writes_the_plot(tmp_path: Path):
+    pytest.importorskip("matplotlib")
+    run_dir = tmp_path / "head"
+    run_dir.mkdir()
+    (run_dir / "metrics.csv").write_text(
+        "epoch,train_loss,train_accuracy,train_macro_f1,"
+        "validation_loss,validation_accuracy,validation_macro_f1,seconds\n"
+        "1,0.9,0.6,0.5,0.8,0.7,0.6,10.0\n",
+        encoding="utf-8",
+    )
+    output = tmp_path / "curves.png"
+
+    result = runner.invoke(app, ["curves", "--run", str(run_dir), "--output", str(output)])
+
+    assert result.exit_code == 0, result.output
+    assert output.is_file()
+    assert f"Wrote training curves to {output}" in result.stdout
+
+
+def test_curves_reports_errors(tmp_path: Path):
+    pytest.importorskip("matplotlib")
+
+    result = runner.invoke(app, ["curves", "--run", str(tmp_path / "missing")])
+
+    assert result.exit_code == 1
+    assert "Error:" in result.stderr
