@@ -71,7 +71,7 @@ def train_head(
     learning_rate: float = HEAD_LEARNING_RATE,
     batch_size: int = BATCH_SIZE,
     seed: int = SEED,
-    use_class_weights: bool = False,
+    use_class_weights: bool = True,
     pretrained: bool = True,
     settings: Settings | None = None,
     report: EpochReport | None = None,
@@ -106,7 +106,7 @@ def train_full(
     patience: int = PATIENCE,
     batch_size: int = BATCH_SIZE,
     seed: int = SEED,
-    use_class_weights: bool = False,
+    use_class_weights: bool = True,
     settings: Settings | None = None,
     report: EpochReport | None = None,
 ) -> FitResult:

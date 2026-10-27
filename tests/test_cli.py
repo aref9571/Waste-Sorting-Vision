@@ -255,7 +255,7 @@ def test_train_head_uses_the_stage_defaults(monkeypatch: pytest.MonkeyPatch):
     run_dir, options = calls[0]
     assert run_dir == Path("runs/head")
     assert options["epochs"] == 8
-    assert options["use_class_weights"] is False
+    assert options["use_class_weights"] is True
     assert "epoch   1" in result.stdout
     assert "Best epoch 1: val accuracy 0.8000, val macro-F1 0.7500" in result.stdout
     assert "Stopped early" not in result.stdout
@@ -278,7 +278,7 @@ def test_train_full_passes_its_options(monkeypatch: pytest.MonkeyPatch, tmp_path
             "train",
             "--stage",
             "full",
-            "--class-weights",
+            "--no-class-weights",
             "--head-checkpoint",
             str(tmp_path / "head.pt"),
             "--run-dir",
@@ -291,7 +291,7 @@ def test_train_full_passes_its_options(monkeypatch: pytest.MonkeyPatch, tmp_path
     assert head_checkpoint == tmp_path / "head.pt"
     assert run_dir == tmp_path / "full"
     assert options["epochs"] == 25
-    assert options["use_class_weights"] is True
+    assert options["use_class_weights"] is False
     assert "Stopped early after 6 epochs" in result.stdout
 
 

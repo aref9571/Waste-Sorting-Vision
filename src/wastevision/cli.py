@@ -222,7 +222,7 @@ def train(
     ] = None,
     class_weights: Annotated[
         bool, typer.Option(help="Weight the loss by inverse class frequency.")
-    ] = False,
+    ] = True,
     images_dir: Annotated[
         Path, typer.Option(help="Folder with one subfolder of images per class.")
     ] = DEFAULT_IMAGES_DIR,

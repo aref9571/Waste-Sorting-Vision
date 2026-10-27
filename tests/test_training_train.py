@@ -120,7 +120,7 @@ def test_train_full_starts_from_the_head_with_two_learning_rates(
     assert scheduler.T_max == 10
     assert captured["epochs"] == 10
     assert captured["patience"] == 4
-    assert captured["class_weights"] is None
+    assert captured["class_weights"].tolist() == pytest.approx([1.0] * 6)
 
 
 def test_train_full_needs_a_head_checkpoint(tiny_dataset: tuple[Path, Path], tmp_path: Path):
