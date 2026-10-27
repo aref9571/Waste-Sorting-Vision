@@ -11,7 +11,7 @@ In development.
 | Dataset download, checksum and fixed train/validation/test split | Done |
 | Image preprocessing and augmentation | Done |
 | Classical baseline (colour, texture and shape features with logistic regression or SVM), evaluated on the test split | Done |
-| Convolutional neural network: model and training loop | In progress, not yet available from the command line |
+| Convolutional neural network: two-stage training with `wastevision train`, results on the validation split | Done |
 | Evaluation of the neural network and comparison with the baseline | Planned |
 | FastAPI service, web page and Docker image | Planned |
 
@@ -79,3 +79,14 @@ wastevision baseline evaluate
 ```
 
 On the test split it reaches an accuracy of 0.730 and a macro-F1 of 0.720. See [docs/evaluation.md](docs/evaluation.md) for the features, the model selection on validation and the per-class results.
+
+## Neural network
+
+The main model is MobileNetV3-Small, pretrained on ImageNet and fine-tuned in two stages: first only the new classification layer, then the whole network with a lower learning rate for the pretrained layers. It needs the `train` extra and the downloaded dataset:
+
+```bash
+wastevision train --stage head
+wastevision train --stage full
+```
+
+On the validation split it reaches an accuracy of 0.926 and a macro-F1 of 0.919. See [docs/evaluation.md](docs/evaluation.md) for the settings, the class-weight comparison and the training curves.

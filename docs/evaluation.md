@@ -71,3 +71,50 @@ wastevision baseline evaluate
 `baseline train` prints the validation table and saves the selected pipeline to `runs/baseline/model.joblib` (not committed). `baseline evaluate` loads it and prints the test metrics. Both commands are deterministic: running them again gives the same numbers.
 
 Measured on 2026-10-23 on a 4-core Intel Xeon CPU at 2.10 GHz with Python 3.12.3, scikit-learn 1.9.1 and scikit-image 0.26.0: feature extraction takes about 11 ms per image, `baseline train` about 70 seconds in total (feature extraction for train and validation plus all ten candidates), `baseline evaluate` about 6 seconds.
+
+## Neural network
+
+The network is MobileNetV3-Small, pretrained on ImageNet (`IMAGENET1K_V1` weights from torchvision), with its last layer replaced by a new layer with one output per class. It is trained in two stages on the train split, and every choice below was made on the validation split only. The test result follows once, for the final model.
+
+### Training settings
+
+| Setting | Stage 1: head | Stage 2: full network |
+|---|---|---|
+| Trainable layers | classifier only (backbone frozen, BatchNorm statistics fixed) | all layers |
+| Starting weights | ImageNet backbone, new random last layer | best stage 1 checkpoint |
+| Optimizer | AdamW, learning rate 1e-3 | AdamW, learning rate 1e-4 for the backbone and 1e-3 for the classifier |
+| Learning-rate schedule | constant | cosine decay over 25 epochs |
+| Epochs | 8 | at most 25, early stopping when validation macro-F1 has not improved for 4 epochs |
+| Loss | cross-entropy with inverse-frequency class weights | same |
+| Batch size, seed | 32, 42 | 32, 42 |
+
+After every epoch the model is evaluated on validation, and the checkpoint with the highest validation macro-F1 is kept.
+
+### Class weights
+
+Trash has only 95 training images, against 416 for paper. Weighting the loss by inverse class frequency makes a mistake on a rare class cost more. Both options were trained through both stages and compared on validation:
+
+| Loss | Stage 1 val macro-F1 | Stage 2 best epoch | Stage 2 val accuracy | Stage 2 val macro-F1 |
+|---|---|---|---|---|
+| unweighted | 0.8575 | 8 of 12 | 0.9206 | 0.9127 |
+| inverse-frequency class weights | 0.8493 | 17 of 21 | **0.9259** | **0.9189** |
+
+The weighted loss is slightly better after fine-tuning and is the default. The difference is small (two more validation images correct out of 378), so it is a weak preference, not a strong result. For comparison, the classical baseline reaches a validation macro-F1 of 0.699.
+
+### Training curves
+
+![Loss and macro-F1 per epoch for stage 1 (head) and stage 2 (full network), with class weights](img/training-curves.png)
+
+Training loss keeps falling, while validation loss levels off at about 0.28 from epoch 12 of stage 2 and training macro-F1 approaches 1.0. This growing gap is the sign of overfitting that early stopping reacts to. The jump in training loss at the start of stage 2 comes from unfreezing the backbone: its BatchNorm layers start updating their statistics and the pretrained features begin to change.
+
+### Reproduce
+
+```bash
+pip install -e ".[train,dev]"
+wastevision data download
+wastevision train --stage head
+wastevision train --stage full
+wastevision curves --run runs/head --run runs/full
+```
+
+`train` prints one line per epoch and writes `metrics.csv` and the best checkpoint `best.pt` to `runs/head` or `runs/full` (not committed). `--no-class-weights`, `--epochs` and `--run-dir` change the settings. The comparison above used `--run-dir` to keep the four runs apart. Measured on 2026-10-27 on a 4-core Intel Xeon CPU at 2.10 GHz with PyTorch 2.14.1: stage 1 takes about 3 minutes, stage 2 about 13 minutes (about 38 seconds per epoch).
