@@ -24,7 +24,7 @@ from wastevision.training.loop import (
     set_train_mode,
     train_epoch,
 )
-from wastevision.training.model import build_model, freeze_backbone
+from wastevision.training.model import build_model, freeze_backbone, trainable_parameters
 
 IMAGE_SIZE = 32
 
@@ -39,6 +39,10 @@ def random_batch(seed: int, size: int = 4) -> tuple[torch.Tensor, torch.Tensor]:
 def random_loader(seed: int, size: int = 12) -> DataLoader:
     images, labels = random_batch(seed, size)
     return DataLoader(TensorDataset(images, labels), batch_size=4)
+
+
+def adamw(model: nn.Module, learning_rate: float = 1e-3) -> torch.optim.AdamW:
+    return torch.optim.AdamW(trainable_parameters(model), lr=learning_rate)
 
 
 def batch_loss(model: nn.Module, batch: tuple[torch.Tensor, torch.Tensor]) -> float:
@@ -173,7 +177,7 @@ def test_fit_writes_metrics_and_keeps_the_best_checkpoint(tmp_path: Path):
     model = build_model(pretrained=False)
     run_dir = tmp_path / "run"
 
-    result = fit(model, random_loader(1), random_loader(2), run_dir, epochs=3, learning_rate=1e-3)
+    result = fit(model, random_loader(1), random_loader(2), run_dir, adamw(model), epochs=3)
 
     with (run_dir / METRICS_FILE_NAME).open(encoding="utf-8") as file:
         rows = list(csv.reader(file))
@@ -193,7 +197,7 @@ def test_fit_keeps_the_first_epoch_when_later_epochs_are_not_better(tmp_path: Pa
     model = build_model(pretrained=False)
     freeze_backbone(model)
 
-    result = fit(model, random_loader(1), random_loader(2), tmp_path, epochs=2, learning_rate=0.0)
+    result = fit(model, random_loader(1), random_loader(2), tmp_path, adamw(model, 0.0), epochs=2)
 
     assert result.history[0].validation.macro_f1 == result.history[1].validation.macro_f1
     assert result.best_epoch == 1
@@ -204,7 +208,7 @@ def test_fit_with_class_weights(tmp_path: Path):
     model = build_model(pretrained=False)
     weights = torch.ones(len(CLASS_NAMES))
 
-    result = fit(model, random_loader(1), random_loader(2), tmp_path, 1, 1e-3, weights)
+    result = fit(model, random_loader(1), random_loader(2), tmp_path, adamw(model), 1, weights)
 
     assert result.best_epoch == 1
 
@@ -215,7 +219,7 @@ def test_fit_is_reproducible_with_the_same_seed(tmp_path: Path):
         set_seed(7)
         model = build_model(pretrained=False)
         results.append(
-            fit(model, random_loader(1), random_loader(2), tmp_path / name, 2, learning_rate=1e-3)
+            fit(model, random_loader(1), random_loader(2), tmp_path / name, adamw(model), 2)
         )
 
     first, second = ([record.validation for record in r.history] for r in results)
@@ -223,14 +227,66 @@ def test_fit_is_reproducible_with_the_same_seed(tmp_path: Path):
 
 
 def test_fit_rejects_zero_epochs(tmp_path: Path):
+    model = build_model(pretrained=False)
+
     with pytest.raises(ValueError, match="at least 1"):
-        fit(build_model(pretrained=False), [], [], tmp_path, epochs=0, learning_rate=1e-3)
+        fit(model, [], [], tmp_path, adamw(model), epochs=0)
 
 
 def test_fit_refuses_to_overwrite_a_run(tmp_path: Path):
     (tmp_path / METRICS_FILE_NAME).write_text("old\n", encoding="utf-8")
 
+    model = build_model(pretrained=False)
+
     with pytest.raises(FileExistsError):
-        fit(build_model(pretrained=False), [], [], tmp_path, epochs=1, learning_rate=1e-3)
+        fit(model, [], [], tmp_path, adamw(model), epochs=1)
 
     assert (tmp_path / METRICS_FILE_NAME).read_text(encoding="utf-8") == "old\n"
+
+
+def test_fit_stops_early_when_validation_does_not_improve(tmp_path: Path):
+    set_seed(0)
+    model = build_model(pretrained=False)
+    reported_epochs = []
+
+    result = fit(
+        model,
+        random_loader(1),
+        random_loader(2),
+        tmp_path,
+        adamw(model, 0.0),
+        epochs=10,
+        patience=2,
+        report=lambda record: reported_epochs.append(record.epoch),
+    )
+
+    assert [record.epoch for record in result.history] == [1, 2, 3]
+    assert reported_epochs == [1, 2, 3]
+    assert result.best_epoch == 1
+
+
+def test_fit_without_patience_runs_every_epoch(tmp_path: Path):
+    set_seed(0)
+    model = build_model(pretrained=False)
+
+    result = fit(model, random_loader(1), random_loader(2), tmp_path, adamw(model, 0.0), 4)
+
+    assert len(result.history) == 4
+
+
+def test_fit_steps_the_scheduler_once_per_epoch(tmp_path: Path):
+    set_seed(0)
+    model = build_model(pretrained=False)
+    optimizer = adamw(model, 1e-3)
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=4)
+
+    fit(model, random_loader(1), random_loader(2), tmp_path, optimizer, 2, scheduler=scheduler)
+
+    assert optimizer.param_groups[0]["lr"] == pytest.approx(0.5e-3)
+
+
+def test_fit_rejects_zero_patience(tmp_path: Path):
+    model = build_model(pretrained=False)
+
+    with pytest.raises(ValueError, match="patience"):
+        fit(model, [], [], tmp_path, adamw(model), epochs=1, patience=0)

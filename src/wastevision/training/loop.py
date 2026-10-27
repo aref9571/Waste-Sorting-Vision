@@ -1,7 +1,7 @@
 import csv
 import random
 import time
-from collections.abc import Iterable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
@@ -172,23 +172,27 @@ def fit(
     train_loader: DataLoader[tuple[torch.Tensor, int]],
     validation_loader: DataLoader[tuple[torch.Tensor, int]],
     run_dir: Path,
+    optimizer: torch.optim.Optimizer,
     epochs: int,
-    learning_rate: float,
     class_weights: torch.Tensor | None = None,
+    scheduler: torch.optim.lr_scheduler.LRScheduler | None = None,
+    patience: int | None = None,
+    report: Callable[[EpochRecord], None] | None = None,
 ) -> FitResult:
     if epochs < 1:
         raise ValueError("epochs must be at least 1")
+    if patience is not None and patience < 1:
+        raise ValueError("patience must be at least 1")
     metrics_path = run_dir / METRICS_FILE_NAME
     if metrics_path.exists():
         raise FileExistsError(f"Run folder {run_dir} already has {METRICS_FILE_NAME}")
     run_dir.mkdir(parents=True, exist_ok=True)
 
     criterion = nn.CrossEntropyLoss(weight=class_weights)
-    trainable = [parameter for parameter in model.parameters() if parameter.requires_grad]
-    optimizer = torch.optim.AdamW(trainable, lr=learning_rate)
     checkpoint_path = run_dir / CHECKPOINT_FILE_NAME
     history: list[EpochRecord] = []
     best_macro_f1 = -1.0
+    epochs_without_improvement = 0
 
     for epoch in range(1, epochs + 1):
         start = time.perf_counter()
@@ -197,9 +201,18 @@ def fit(
         record = EpochRecord(epoch, train, validation, time.perf_counter() - start)
         history.append(record)
         write_metrics_row(metrics_path, record)
+        if report is not None:
+            report(record)
         if validation.macro_f1 > best_macro_f1:
             best_macro_f1 = validation.macro_f1
+            epochs_without_improvement = 0
             save_checkpoint(model, checkpoint_path, epoch, validation)
+        else:
+            epochs_without_improvement += 1
+        if scheduler is not None:
+            scheduler.step()
+        if patience is not None and epochs_without_improvement >= patience:
+            break
 
     best = max(history, key=lambda record: record.validation.macro_f1)
     return FitResult(history, best.epoch, best.validation, checkpoint_path)

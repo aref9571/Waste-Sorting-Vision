@@ -1,3 +1,5 @@
+from collections.abc import Iterable
+
 import pytest
 
 torch = pytest.importorskip("torch")
@@ -5,7 +7,12 @@ torch = pytest.importorskip("torch")
 from torch import nn
 
 from wastevision.labels import CLASS_NAMES
-from wastevision.training.model import build_model, freeze_backbone
+from wastevision.training.model import (
+    build_model,
+    freeze_backbone,
+    parameter_groups,
+    trainable_parameters,
+)
 
 
 def test_build_model_outputs_one_score_per_class():
@@ -33,3 +40,31 @@ def test_freeze_backbone_leaves_only_the_classifier_trainable():
 
     assert not any(parameter.requires_grad for parameter in model.features.parameters())
     assert all(parameter.requires_grad for parameter in model.classifier.parameters())
+
+
+def ids(parameters: Iterable[nn.Parameter]) -> list[int]:
+    return [id(parameter) for parameter in parameters]
+
+
+def test_parameter_groups_give_backbone_and_head_their_own_learning_rate():
+    model = build_model(pretrained=False)
+
+    groups = parameter_groups(model, head_learning_rate=1e-3, backbone_learning_rate=1e-4)
+
+    assert [group["lr"] for group in groups] == [1e-4, 1e-3]
+    assert ids(groups[0]["params"]) == ids(model.features.parameters())
+    assert ids(groups[1]["params"]) == ids(model.classifier.parameters())
+    assert sorted(ids(groups[0]["params"]) + ids(groups[1]["params"])) == sorted(
+        ids(model.parameters())
+    )
+
+
+def test_parameter_groups_leave_out_a_frozen_backbone():
+    model = build_model(pretrained=False)
+    freeze_backbone(model)
+
+    groups = parameter_groups(model, head_learning_rate=1e-3, backbone_learning_rate=1e-4)
+
+    assert len(groups) == 1
+    assert groups[0]["lr"] == 1e-3
+    assert ids(groups[0]["params"]) == ids(trainable_parameters(model))
