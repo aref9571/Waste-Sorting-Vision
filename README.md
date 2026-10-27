@@ -1,10 +1,19 @@
 # Waste Sorting Vision
 
-Waste Sorting Vision is an image classification service that tells you which recycling category a photographed household item belongs to: cardboard, glass, metal and cans, paper, plastic, or other waste. It compares a classical image-processing baseline with a fine-tuned convolutional neural network, evaluates both honestly (including on real photos taken outside the lab), and serves the final model through a tested FastAPI service and a simple web page, packaged with Docker.
+Waste Sorting Vision is an image classification service that tells you which recycling category a photographed household item belongs to: cardboard, glass, metal and cans, paper, plastic, or other waste. It compares a classical image-processing baseline with a fine-tuned convolutional neural network, and evaluates both honestly, including on real photos taken outside the lab. The final model will be served through a tested FastAPI service and a simple web page, packaged with Docker.
 
 ## Status
 
-In development. The project setup is in place; the dataset pipeline, models, evaluation and service are still being built.
+In development.
+
+| Part | Status |
+|:--|:--|
+| Dataset download, checksum and fixed train/validation/test split | Done |
+| Image preprocessing and augmentation | Done |
+| Classical baseline (colour, texture and shape features with logistic regression or SVM), evaluated on the test split | Done |
+| Convolutional neural network: model and training loop | In progress, not yet available from the command line |
+| Evaluation of the neural network and comparison with the baseline | Planned |
+| FastAPI service, web page and Docker image | Planned |
 
 ## Development setup
 
