@@ -41,7 +41,7 @@ def draw_run_boundaries(
             axis.axvline(start + 0.5, color="grey", linestyle="--", linewidth=1)
         axis.text(
             start + 1,
-            1.0,
+            1.01,
             run_dir.name,
             transform=axis.get_xaxis_transform(),
             fontsize=8,
@@ -67,7 +67,7 @@ def save_training_curves(run_dirs: Sequence[Path], output: Path) -> None:
             epochs, joined[f"validation_{metric}"], marker="o", markersize=3, label="validation"
         )
         draw_run_boundaries(axis, run_dirs, runs)
-        axis.set_title(title)
+        axis.set_title(title, pad=16)
         axis.set_xlabel("epoch (all runs in order)")
         axis.grid(alpha=0.3)
         axis.legend()
