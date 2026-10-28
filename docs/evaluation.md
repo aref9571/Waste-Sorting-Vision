@@ -74,7 +74,7 @@ Measured on 2026-10-23 on a 4-core Intel Xeon CPU at 2.10 GHz with Python 3.12.3
 
 ## Neural network
 
-The network is MobileNetV3-Small, pretrained on ImageNet (`IMAGENET1K_V1` weights from torchvision), with its last layer replaced by a new layer with one output per class. It is trained in two stages on the train split, and every choice below was made on the validation split only. The test result follows once, for the final model.
+The network is MobileNetV3-Small, pretrained on ImageNet (`IMAGENET1K_V1` weights from torchvision), with its last layer replaced by a new layer with one output per class. It is trained in two stages on the train split, and every choice below was made on the validation split only. The final model was then evaluated once on the test split ([Test result](#test-result-1)).
 
 ### Training settings
 
@@ -118,3 +118,56 @@ wastevision curves --run runs/head --run runs/full
 ```
 
 `train` prints one line per epoch and writes `metrics.csv` and the best checkpoint `best.pt` to `runs/head` or `runs/full` (not committed). `--no-class-weights`, `--epochs` and `--run-dir` change the settings. The comparison above used `--run-dir` to keep the four runs apart. Measured on 2026-10-27 on a 4-core Intel Xeon CPU at 2.10 GHz with PyTorch 2.14.1: stage 1 takes about 3 minutes, stage 2 about 13 minutes (about 38 seconds per epoch).
+
+### Test result
+
+The final model (stage 2 with class weights, best epoch 17, validation macro-F1 0.919) was evaluated once on the test split (378 images). Nothing was changed after seeing these numbers.
+
+| Model | Test accuracy | Test macro-F1 |
+|---|---|---|
+| Classical baseline (logistic regression on colour, texture and shape features) | 0.730 | 0.720 |
+| **MobileNetV3-Small, fine-tuned** | **0.868** | **0.819** |
+
+| Class | Precision | Recall | F1 | Baseline F1 | Test images |
+|---|---|---|---|---|---|
+| cardboard | 0.894 | 0.983 | 0.937 | 0.833 | 60 |
+| glass | 0.914 | 0.853 | 0.883 | 0.706 | 75 |
+| metal | 0.851 | 0.934 | 0.891 | 0.622 | 61 |
+| paper | 0.949 | 0.843 | 0.893 | 0.835 | 89 |
+| plastic | 0.831 | 0.889 | 0.859 | 0.640 | 72 |
+| trash | 0.474 | 0.429 | 0.450 | 0.686 | 21 |
+
+![Confusion matrix of the neural network on the test split](img/confusion-matrix.png)
+
+The network is clearly better than the baseline for five of the six classes, with the largest gains for metal (+0.27 F1), plastic (+0.22) and glass (+0.18), the shiny materials that the hand-crafted features confused most. Trash is the exception: the network finds only 9 of the 21 trash images, and 10 of its 19 trash predictions are wrong (8 of them are paper). The baseline does better on this class (F1 0.686).
+
+The test result is lower than the validation result (accuracy 0.868 against 0.926, macro-F1 0.819 against 0.919). That is 22 more wrong images out of 378, more than the usual variation between two samples of this size. Two reasons are known: the epoch and the loss were chosen because they scored best on validation, so the validation score is optimistic by design; and trash has only 21 images in each split, so each trash image moves its recall by about 5 percentage points. Most of the gap comes from trash (validation F1 0.857, test 0.450) and from paper predicted as trash. The test score is the one to report, and the error analysis looks at these mistakes in detail.
+
+### Calibration
+
+A model is well calibrated when its confidence matches how often it is right: of all the images it classifies with 80% confidence, about 80% should be correct. Calibration matters here because the service will answer "unsure" when the confidence is low, and that threshold only works if the confidence means something.
+
+The confidence of a prediction is its highest softmax probability. The test predictions are sorted into 10 equal-width confidence bins, and for each bin the accuracy is compared with the mean confidence. The expected calibration error (ECE) is the average gap between the two, weighted by the share of images in each bin.
+
+| Confidence | Images | Mean confidence | Accuracy |
+|---|---|---|---|
+| 0.4 to 0.5 | 5 | 0.439 | 0.200 |
+| 0.5 to 0.6 | 15 | 0.551 | 0.200 |
+| 0.6 to 0.7 | 16 | 0.647 | 0.375 |
+| 0.7 to 0.8 | 13 | 0.740 | 0.769 |
+| 0.8 to 0.9 | 20 | 0.855 | 0.750 |
+| 0.9 to 1.0 | 309 | 0.990 | 0.948 |
+
+No prediction had a confidence below 0.4. **ECE on the test split: 0.069.**
+
+![Reliability diagram of the neural network on the test split](img/reliability-diagram.png)
+
+The model is overconfident: in almost every bin the accuracy is below the confidence (bars under the diagonal). The effect is strongest for uncertain predictions (only 10 of the 36 images with a confidence below 0.7 are correct), and it matters most for the top bin, which holds 82% of the images: their mean confidence is 0.990, but 5.2% of them are wrong. Still, low confidence does point to likely mistakes, which is what an "unsure" answer needs. Its threshold will be chosen on the validation split.
+
+### Reproduce
+
+```bash
+wastevision evaluate
+```
+
+`evaluate` loads `runs/full/best.pt` (the checkpoint from the training commands above), predicts the test split, prints the metrics, the confusion matrix and the calibration table, and writes [img/confusion-matrix.png](img/confusion-matrix.png) and [img/reliability-diagram.png](img/reliability-diagram.png). The metrics and the calibration error are computed with the project's own NumPy code ([src/wastevision/evaluation/](../src/wastevision/evaluation/)), which is checked against scikit-learn in the tests. Measured on 2026-10-28 on a 4-core Intel Xeon CPU at 2.10 GHz with PyTorch 2.14.1: about 8 seconds.
