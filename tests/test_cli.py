@@ -370,3 +370,58 @@ def test_curves_reports_errors(tmp_path: Path):
 
     assert result.exit_code == 1
     assert "Error:" in result.stderr
+
+
+def evaluate_arguments(images_dir: Path, split_path: Path, checkpoint: Path, tmp_path: Path):
+    return [
+        "evaluate",
+        "--checkpoint",
+        str(checkpoint),
+        "--images-dir",
+        str(images_dir),
+        "--split",
+        str(split_path),
+        "--confusion-output",
+        str(tmp_path / "img" / "confusion.png"),
+        "--reliability-output",
+        str(tmp_path / "img" / "reliability.png"),
+    ]
+
+
+def test_evaluate_prints_test_metrics_and_writes_the_plots(
+    tiny_dataset: tuple[Path, Path], tmp_path: Path
+):
+    torch = pytest.importorskip("torch")
+    pytest.importorskip("matplotlib")
+    from wastevision.training.loop import EpochMetrics, save_checkpoint
+    from wastevision.training.model import build_model
+
+    images_dir, split_path = tiny_dataset
+    checkpoint = tmp_path / "best.pt"
+    torch.manual_seed(0)
+    save_checkpoint(build_model(pretrained=False), checkpoint, 1, EpochMetrics(1.0, 0.5, 0.5))
+
+    result = runner.invoke(app, evaluate_arguments(images_dir, split_path, checkpoint, tmp_path))
+
+    assert result.exit_code == 0, result.output
+    assert f"Test split ({len(CLASS_NAMES)} images):" in result.stdout
+    assert "macro-F1:" in result.stdout
+    assert "Confusion matrix (rows: true class, columns: predicted class):" in result.stdout
+    assert "0.9 to 1.0" in result.stdout
+    assert "expected calibration error:" in result.stdout
+    assert (tmp_path / "img" / "confusion.png").is_file()
+    assert (tmp_path / "img" / "reliability.png").is_file()
+
+
+def test_evaluate_reports_a_missing_checkpoint(tiny_dataset: tuple[Path, Path], tmp_path: Path):
+    pytest.importorskip("torch")
+    pytest.importorskip("matplotlib")
+    images_dir, split_path = tiny_dataset
+
+    result = runner.invoke(
+        app, evaluate_arguments(images_dir, split_path, tmp_path / "missing.pt", tmp_path)
+    )
+
+    assert result.exit_code == 1
+    assert "Error: Checkpoint" in result.stderr
+    assert not (tmp_path / "img").exists()

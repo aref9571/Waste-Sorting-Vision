@@ -58,6 +58,8 @@ select = ["E", "W", "F", "I", "B", "UP", "SIM", "N", "C4", "PT", "RUF"]
 "tests/test_image_dataset.py" = ["E402"]
 "tests/test_preview.py" = ["E402"]
 "tests/test_training_*.py" = ["E402"]
+"tests/test_evaluation_plots.py" = ["E402"]
+"tests/test_evaluation_predictions.py" = ["E402"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

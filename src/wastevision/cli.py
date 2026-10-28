@@ -25,9 +25,12 @@ from wastevision.data.split import (
     create_split,
     write_split_csv,
 )
+from wastevision.labels import CLASS_NAMES
 
 if TYPE_CHECKING:
     from wastevision.baseline.train import EvaluationResult
+    from wastevision.evaluation.calibration import CalibrationBin
+    from wastevision.evaluation.metrics import ClassificationReport
     from wastevision.training.loop import EpochRecord
 
 app = typer.Typer(no_args_is_help=True)
@@ -41,6 +44,9 @@ DEFAULT_MODEL_PATH = Path("runs/baseline/model.joblib")
 DEFAULT_PREVIEW_PATH = Path("docs/img/augmentations.png")
 DEFAULT_HEAD_CHECKPOINT = Path("runs/head/best.pt")
 DEFAULT_CURVES_PATH = Path("docs/img/training-curves.png")
+DEFAULT_FULL_CHECKPOINT = Path("runs/full/best.pt")
+DEFAULT_CONFUSION_PATH = Path("docs/img/confusion-matrix.png")
+DEFAULT_RELIABILITY_PATH = Path("docs/img/reliability-diagram.png")
 
 
 class TrainingStage(StrEnum):
@@ -126,7 +132,7 @@ def preview(
     typer.echo(f"Wrote augmentation preview of {len(records)} images to {output}")
 
 
-def echo_evaluation(result: "EvaluationResult") -> None:
+def echo_evaluation(result: "EvaluationResult | ClassificationReport") -> None:
     typer.echo(f"accuracy: {result.accuracy:.4f}")
     typer.echo(f"macro-F1: {result.macro_f1:.4f}")
     typer.echo(f"{'class':<10} {'precision':>10} {'recall':>10} {'f1':>10} {'support':>10}")
@@ -290,3 +296,65 @@ def curves(
         raise typer.Exit(code=1) from error
 
     typer.echo(f"Wrote training curves to {output}")
+
+
+def echo_confusion_matrix(report: "ClassificationReport") -> None:
+    typer.echo("Confusion matrix (rows: true class, columns: predicted class):")
+    typer.echo(f"{'':<10} " + " ".join(f"{name:>10}" for name in CLASS_NAMES))
+    for class_name, row in zip(CLASS_NAMES, report.confusion, strict=True):
+        typer.echo(f"{class_name:<10} " + " ".join(f"{int(count):>10}" for count in row))
+
+
+def echo_calibration(bins: "list[CalibrationBin]", ece: float) -> None:
+    typer.echo(f"{'confidence':<12} {'images':>8} {'mean confidence':>16} {'accuracy':>10}")
+    for calibration_bin in bins:
+        typer.echo(
+            f"{calibration_bin.lower:.1f} to {calibration_bin.upper:.1f}"
+            f" {calibration_bin.count:>8} {calibration_bin.mean_confidence:>16.4f}"
+            f" {calibration_bin.accuracy:>10.4f}"
+        )
+    typer.echo(f"expected calibration error: {ece:.4f}")
+
+
+@app.command()
+def evaluate(
+    checkpoint: Annotated[
+        Path, typer.Option(help="Trained network checkpoint to evaluate.")
+    ] = DEFAULT_FULL_CHECKPOINT,
+    images_dir: Annotated[
+        Path, typer.Option(help="Folder with one subfolder of images per class.")
+    ] = DEFAULT_IMAGES_DIR,
+    split_path: Annotated[Path, typer.Option("--split", help="Split CSV.")] = DEFAULT_SPLIT_PATH,
+    confusion_output: Annotated[
+        Path, typer.Option(help="PNG file for the confusion matrix.")
+    ] = DEFAULT_CONFUSION_PATH,
+    reliability_output: Annotated[
+        Path, typer.Option(help="PNG file for the reliability diagram.")
+    ] = DEFAULT_RELIABILITY_PATH,
+) -> None:
+    from wastevision.evaluation.calibration import expected_calibration_error, reliability_bins
+    from wastevision.evaluation.metrics import classification_report
+    from wastevision.evaluation.plots import save_confusion_matrix, save_reliability_diagram
+    from wastevision.evaluation.predictions import predict_split
+
+    try:
+        predictions = predict_split(checkpoint, images_dir, split_path, "test")
+    except (SplitFileError, ValueError, OSError) as error:
+        typer.echo(f"Error: {error}", err=True)
+        raise typer.Exit(code=1) from error
+
+    report = classification_report(
+        predictions.labels.tolist(), predictions.predicted.tolist(), CLASS_NAMES
+    )
+    bins = reliability_bins(predictions.confidences.tolist(), predictions.correct.tolist())
+    typer.echo(f"Test split ({len(predictions.labels)} images):")
+    echo_evaluation(report)
+    echo_confusion_matrix(report)
+    echo_calibration(bins, expected_calibration_error(bins))
+
+    save_confusion_matrix(
+        report.confusion, CLASS_NAMES, confusion_output, "Neural network, test split"
+    )
+    save_reliability_diagram(bins, reliability_output)
+    typer.echo(f"Wrote confusion matrix to {confusion_output}")
+    typer.echo(f"Wrote reliability diagram to {reliability_output}")
