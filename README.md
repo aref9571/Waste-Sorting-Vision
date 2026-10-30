@@ -13,7 +13,8 @@ In development.
 | Classical baseline (colour, texture and shape features with logistic regression or SVM), evaluated on the test split | Done |
 | Convolutional neural network: two-stage training with `wastevision train`, results on the validation split | Done |
 | Evaluation of the neural network on the test split, calibration and comparison with the baseline | Done |
-| Error analysis, robustness checks and a test on real photos | Planned |
+| Error analysis with Grad-CAM explanations | Done |
+| Robustness checks and a test on real photos | Planned |
 | FastAPI service, web page and Docker image | Planned |
 
 ## Development setup
@@ -96,4 +97,10 @@ On the validation split it reaches an accuracy of 0.926 and a macro-F1 of 0.919.
 wastevision evaluate
 ```
 
-On the test split it reaches an accuracy of 0.868 and a macro-F1 of 0.819 (baseline: 0.730 and 0.720). It is better than the baseline for every class except trash, the smallest class. See [docs/evaluation.md](docs/evaluation.md) for the settings, the class-weight comparison, the training curves, the per-class test results, the confusion matrix and the calibration.
+On the test split it reaches an accuracy of 0.868 and a macro-F1 of 0.819 (baseline: 0.730 and 0.720). It is better than the baseline for every class except trash, the smallest class. See [docs/evaluation.md](docs/evaluation.md) for the settings, the class-weight comparison, the training curves, the per-class test results, the confusion matrix, the calibration and the error analysis.
+
+Show the most confident mistakes and Grad-CAM maps of the regions the network used:
+
+```bash
+wastevision error-analysis --mistakes 16
+```

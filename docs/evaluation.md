@@ -171,3 +171,62 @@ wastevision evaluate
 ```
 
 `evaluate` loads `runs/full/best.pt` (the checkpoint from the training commands above), predicts the test split, prints the metrics, the confusion matrix and the calibration table, and writes [img/confusion-matrix.png](img/confusion-matrix.png) and [img/reliability-diagram.png](img/reliability-diagram.png). The metrics and the calibration error are computed with the project's own NumPy code ([src/wastevision/evaluation/](../src/wastevision/evaluation/)), which is checked against scikit-learn in the tests. Measured on 2026-10-28 on a 4-core Intel Xeon CPU at 2.10 GHz with PyTorch 2.14.1: about 8 seconds.
+
+### Error analysis
+
+The final model makes 50 mistakes on the 378 test images. This section looks at them image by image. It uses the same test predictions as the test result above and only describes them: nothing in the model or its settings was changed because of it. Ideas for improvements are listed at the end and will be judged on the validation split.
+
+| True class | Test images | Wrong | Predicted instead |
+|---|---|---|---|
+| paper | 89 | 14 | trash 8, cardboard 4, metal 1, plastic 1 |
+| trash | 21 | 12 | plastic 5, paper 3, metal 2, cardboard 2 |
+| glass | 75 | 11 | plastic 6, metal 5 |
+| plastic | 72 | 8 | glass 3, metal 2, trash 2, paper 1 |
+| metal | 61 | 4 | glass 3, cardboard 1 |
+| cardboard | 60 | 1 | plastic 1 |
+
+The 16 mistakes with the highest confidence, shown as the network sees them (resized and centre-cropped to 224 × 224 pixels):
+
+![The 16 most confident mistakes on the test split with true class, predicted class and confidence](img/misclassified.png)
+
+**Paper and trash.** Paper predicted as trash is the most frequent single mistake (8 images), and three trash images are predicted as paper. Most of these papers are crumpled: brown wrapping paper, a ball of white paper, a paper bag. Two of them look like a crushed transparent bag with a paper part, so their label is at least unclear. TrashNet's trash class also contains crumpled paper-like items such as tissues and used wrapping, so the network learned "crumpled and soft" as a sign of trash. Some of these labels are hard even for a person, because in TrashNet trash is not one material but a group of items that do not belong to the other five classes. With only 95 training images, the class has few examples of each kind of item, which also explains the large difference between its validation F1 (0.857) and its test F1 (0.450).
+
+**Trash and plastic.** Five trash images are predicted as plastic. They are snack wrappers, a pouch and small plastic parts, which are made of plastic but labelled as trash in TrashNet because they are not recyclable plastic packaging. From the picture alone the network cannot know the difference between a recyclable plastic bottle and a non-recyclable plastic wrapper. This is a limitation of the labels, not only of the model.
+
+**Glass, plastic and metal.** Glass is confused with plastic (6) and metal (5). Clear glass bottles seen from above or close up look like clear plastic bottles: the shape and the reflections are the same, and the material difference (thickness, weight, sound) is not visible. Glass bottles predicted as metal are mostly bottles whose large label is silver foil or covers most of the crop (the sparkling wine bottle, the mineral water bottle). In the other direction, a gold-coloured can standing upright and a reflective metal lid are predicted as glass.
+
+**Paper and cardboard.** Four papers are predicted as cardboard. They are glossy or dark printed sheets and flyers, which look stiff, like the printed side of a box.
+
+**Close-ups.** Several mistakes are close-ups in which the object fills or leaves the whole frame (glass bottle necks, metal under pink light). The centre crop then shows only part of the object, and the white background, which almost every TrashNet photo has, is missing.
+
+**Confidence.** The mistakes are not all uncertain: 16 of the 50 have a confidence above 0.9, and the worst two have 0.996. An "unsure" threshold will catch many mistakes (29 of the 50 have a confidence below 0.75, and 29 of the 46 test images below 0.75 are wrong), but not these, which agrees with the overconfidence found in the calibration section.
+
+#### Grad-CAM
+
+Grad-CAM shows which parts of the image the network used for a prediction. It takes the 576 feature maps of the network's last convolutional block (7 × 7 values each for a 224 × 224 input) and the gradients of the predicted class score with respect to them. The mean gradient of each feature map is its weight: how much the class score rises when that map gets stronger. The weighted sum of the maps, with negative values set to 0 (ReLU), is a 7 × 7 heat map. It is scaled up to the image size and to values between 0 and 1, and drawn on top of the image (red is high). The implementation is in [src/wastevision/evaluation/gradcam.py](../src/wastevision/evaluation/gradcam.py) and uses a PyTorch forward hook to keep the feature maps and a gradient hook to keep their gradients.
+
+Each row shows one class: on the left the correct prediction with the highest confidence, on the right the most confident mistake of the same true class, each next to its Grad-CAM map for the predicted class.
+
+![Grad-CAM maps for a correct and a wrong prediction of glass, paper and trash](img/gradcam.png)
+
+- **Glass:** for the correct green bottle, the network looks at the glass neck and body. For the sparkling wine bottle predicted as metal, the map covers the silver foil label and the metallic neck, not the glass below it.
+- **Paper:** for the correct newspaper, the map covers the printed page. For the brown wrapping paper predicted as trash, the map is spread over the creases and folds across the whole image, without one clear object.
+- **Trash:** for the correct trash image (a crumpled brown paper-like item), the map is on its folds, which is the same pattern as the wrongly predicted paper. For the snack wrapper predicted as paper, the map is on the printed text and the flat rectangular shape.
+
+In these examples the network looks at the object, not at the background, and the mistakes have a visible reason: a foil label, crumpled texture, printed text on a flat surface. Grad-CAM shows where the network looked, not why that region led to the class, and the 7 × 7 map is coarse. The examples were chosen as the most confident mistakes, so they are not a random sample.
+
+#### What this suggests
+
+- Most mistakes come from look-alike materials (glass and plastic) and from the trash class, whose labels depend on the use of an item more than on its material. More images or stronger augmentation can help with the first; the second also needs clearer labels.
+- The model relies on the plain white background of TrashNet. Photos on ordinary backgrounds, which the service will receive, are likely to be harder. This is tested next with real photos.
+- Confident mistakes exist, so the "unsure" answer can reduce but not remove wrong answers.
+
+Possible improvements (for example stronger colour and background augmentation) will be compared on the validation split only.
+
+### Reproduce the error analysis
+
+```bash
+wastevision error-analysis --mistakes 16
+```
+
+`error-analysis` loads `runs/full/best.pt`, predicts the test split, prints the most frequent confusions and the list of the most confident mistakes (file, true class, predicted class, confidence), and writes [img/misclassified.png](img/misclassified.png) and [img/gradcam.png](img/gradcam.png). `--mistakes` sets the number of mistakes in the grid (default 12) and `--examples` the number of classes in the Grad-CAM figure (default 3). Measured on 2026-10-30 on a 4-core Intel Xeon CPU at 2.10 GHz with PyTorch 2.14.1: about 6 seconds.
