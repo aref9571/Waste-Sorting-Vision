@@ -425,3 +425,146 @@ def test_evaluate_reports_a_missing_checkpoint(tiny_dataset: tuple[Path, Path], 
     assert result.exit_code == 1
     assert "Error: Checkpoint" in result.stderr
     assert not (tmp_path / "img").exists()
+
+
+def all_test_split(images_dir: Path, tmp_path: Path) -> Path:
+    rows = ["file,class,split"]
+    for class_name in CLASS_NAMES:
+        for image_index in range(5):
+            rows.append(f"{class_name}/{class_name}{image_index}.png,{class_name},test")
+    split_path = tmp_path / "all-test.csv"
+    split_path.write_text("\n".join(rows) + "\n", encoding="utf-8")
+    return split_path
+
+
+def fake_predictions(mistakes: dict[int, tuple[int, float]]):
+    import numpy as np
+
+    from wastevision.evaluation.predictions import Predictions
+
+    labels = np.repeat(np.arange(len(CLASS_NAMES)), 5)
+    probabilities = np.full((len(labels), len(CLASS_NAMES)), 0.02)
+    probabilities[np.arange(len(labels)), labels] = 0.9
+    for index, (predicted, confidence) in mistakes.items():
+        probabilities[index] = (1 - confidence) / (len(CLASS_NAMES) - 1)
+        probabilities[index, predicted] = confidence
+    return Predictions(labels, probabilities)
+
+
+def error_analysis_arguments(images_dir: Path, split_path: Path, checkpoint: Path, tmp_path: Path):
+    return [
+        "error-analysis",
+        "--checkpoint",
+        str(checkpoint),
+        "--images-dir",
+        str(images_dir),
+        "--split",
+        str(split_path),
+        "--mistakes-output",
+        str(tmp_path / "img" / "mistakes.png"),
+        "--gradcam-output",
+        str(tmp_path / "img" / "gradcam.png"),
+    ]
+
+
+def run_error_analysis(
+    tiny_dataset: tuple[Path, Path],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    mistakes: dict[int, tuple[int, float]],
+):
+    torch = pytest.importorskip("torch")
+    pytest.importorskip("matplotlib")
+    from wastevision.evaluation import predictions
+    from wastevision.training.loop import EpochMetrics, save_checkpoint
+    from wastevision.training.model import build_model
+
+    images_dir, _ = tiny_dataset
+    split_path = all_test_split(images_dir, tmp_path)
+    checkpoint = tmp_path / "best.pt"
+    torch.manual_seed(0)
+    save_checkpoint(build_model(pretrained=False), checkpoint, 1, EpochMetrics(1.0, 0.5, 0.5))
+    requested_splits: list[str] = []
+
+    def predict_split(checkpoint_path, images, split_file, split):
+        requested_splits.append(split)
+        return fake_predictions(mistakes)
+
+    monkeypatch.setattr(predictions, "predict_split", predict_split)
+    result = runner.invoke(
+        app, error_analysis_arguments(images_dir, split_path, checkpoint, tmp_path)
+    )
+    assert requested_splits == ["test"]
+    return result
+
+
+def test_error_analysis_lists_mistakes_and_writes_both_figures(
+    tiny_dataset: tuple[Path, Path], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    paper_index = CLASS_NAMES.index("paper") * 5
+    plastic_index = CLASS_NAMES.index("plastic") * 5
+    mistakes = {
+        paper_index: (CLASS_NAMES.index("trash"), 0.95),
+        plastic_index: (CLASS_NAMES.index("glass"), 0.8),
+    }
+
+    result = run_error_analysis(tiny_dataset, tmp_path, monkeypatch, mistakes)
+
+    assert result.exit_code == 0, result.output
+    assert "Test split (30 images), 2 mistakes" in result.stdout
+    assert "paper -> trash: 1" in result.stdout
+    assert "plastic -> glass: 1" in result.stdout
+    lines = result.stdout.splitlines()
+    first_mistake = next(line for line in lines if line.startswith("paper/paper0.png"))
+    assert first_mistake.split() == ["paper/paper0.png", "paper", "trash", "0.9500"]
+    assert lines.index(first_mistake) < next(
+        index for index, line in enumerate(lines) if line.startswith("plastic/plastic0.png")
+    )
+    assert (tmp_path / "img" / "mistakes.png").is_file()
+    assert (tmp_path / "img" / "gradcam.png").is_file()
+    assert "Wrote 2 mistakes" in result.stdout
+    assert "Wrote 2 Grad-CAM example pairs" in result.stdout
+
+
+def test_error_analysis_without_mistakes_writes_no_figures(
+    tiny_dataset: tuple[Path, Path], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    result = run_error_analysis(tiny_dataset, tmp_path, monkeypatch, mistakes={})
+
+    assert result.exit_code == 0, result.output
+    assert "No mistakes to show." in result.stdout
+    assert not (tmp_path / "img").exists()
+
+
+def test_error_analysis_reports_a_missing_checkpoint(
+    tiny_dataset: tuple[Path, Path], tmp_path: Path
+):
+    pytest.importorskip("torch")
+    pytest.importorskip("matplotlib")
+    images_dir, split_path = tiny_dataset
+
+    result = runner.invoke(
+        app, error_analysis_arguments(images_dir, split_path, tmp_path / "missing.pt", tmp_path)
+    )
+
+    assert result.exit_code == 1
+    assert "Error: Checkpoint" in result.stderr
+    assert not (tmp_path / "img").exists()
+
+
+def test_error_analysis_without_a_correct_image_of_the_class_skips_grad_cam(
+    tiny_dataset: tuple[Path, Path], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    paper_start = CLASS_NAMES.index("paper") * 5
+    mistakes = {
+        index: (CLASS_NAMES.index("trash"), 0.7) for index in range(paper_start, paper_start + 5)
+    }
+
+    result = run_error_analysis(tiny_dataset, tmp_path, monkeypatch, mistakes)
+
+    assert result.exit_code == 0, result.output
+    assert "paper -> trash: 5" in result.stdout
+    assert "Wrote 5 mistakes" in result.stdout
+    assert "No class has both a correct and a wrong prediction." in result.stdout
+    assert (tmp_path / "img" / "mistakes.png").is_file()
+    assert not (tmp_path / "img" / "gradcam.png").exists()

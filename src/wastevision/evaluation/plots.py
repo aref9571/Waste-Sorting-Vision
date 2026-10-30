@@ -1,3 +1,4 @@
+import math
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -7,6 +8,7 @@ from matplotlib.figure import Figure
 from wastevision.evaluation.calibration import CalibrationBin, expected_calibration_error
 
 PLOT_DPI = 100
+GRID_CELL_INCHES = 2.4
 
 
 def save_figure(figure: Figure, output: Path) -> None:
@@ -60,4 +62,26 @@ def save_confusion_matrix(
     axis.set_xlabel("predicted class")
     axis.set_ylabel("true class")
     axis.set_title(title)
+    save_figure(figure, output)
+
+
+def save_image_grid(
+    images: Sequence[np.ndarray], titles: Sequence[str], output: Path, columns: int
+) -> None:
+    if not images:
+        raise ValueError("No images to show")
+    if len(images) != len(titles):
+        raise ValueError("Expected one title per image")
+    if columns < 1:
+        raise ValueError("columns must be at least 1")
+    columns = min(columns, len(images))
+    rows = math.ceil(len(images) / columns)
+
+    figure = Figure(figsize=(columns * GRID_CELL_INCHES, rows * (GRID_CELL_INCHES + 0.3)))
+    axes = figure.subplots(rows, columns, squeeze=False).flatten()
+    for axis, image, title in zip(axes, images, titles, strict=False):
+        axis.imshow(image)
+        axis.set_title(title, fontsize=8)
+    for axis in axes:
+        axis.set_axis_off()
     save_figure(figure, output)

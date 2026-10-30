@@ -2,6 +2,7 @@ from enum import StrEnum
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated
 
+import numpy as np
 import typer
 
 from wastevision import __version__
@@ -30,6 +31,7 @@ from wastevision.labels import CLASS_NAMES
 if TYPE_CHECKING:
     from wastevision.baseline.train import EvaluationResult
     from wastevision.evaluation.calibration import CalibrationBin
+    from wastevision.evaluation.error_analysis import ConfusedPair
     from wastevision.evaluation.metrics import ClassificationReport
     from wastevision.training.loop import EpochRecord
 
@@ -47,6 +49,9 @@ DEFAULT_CURVES_PATH = Path("docs/img/training-curves.png")
 DEFAULT_FULL_CHECKPOINT = Path("runs/full/best.pt")
 DEFAULT_CONFUSION_PATH = Path("docs/img/confusion-matrix.png")
 DEFAULT_RELIABILITY_PATH = Path("docs/img/reliability-diagram.png")
+DEFAULT_MISTAKES_PATH = Path("docs/img/misclassified.png")
+DEFAULT_GRADCAM_PATH = Path("docs/img/gradcam.png")
+GRID_COLUMNS = 4
 
 
 class TrainingStage(StrEnum):
@@ -358,3 +363,100 @@ def evaluate(
     save_reliability_diagram(bins, reliability_output)
     typer.echo(f"Wrote confusion matrix to {confusion_output}")
     typer.echo(f"Wrote reliability diagram to {reliability_output}")
+
+
+def echo_confused_pairs(pairs: "list[ConfusedPair]") -> None:
+    typer.echo("Most frequent confusions (true class -> predicted class):")
+    for pair in pairs:
+        typer.echo(
+            f"  {CLASS_NAMES[pair.true_class]} -> {CLASS_NAMES[pair.predicted_class]}: {pair.count}"
+        )
+
+
+def describe_prediction(probabilities: np.ndarray, label: int) -> str:
+    predicted = int(np.argmax(probabilities))
+    return (
+        f"true {CLASS_NAMES[label]}\n"
+        f"predicted {CLASS_NAMES[predicted]} ({probabilities[predicted]:.2f})"
+    )
+
+
+@app.command("error-analysis")
+def error_analysis(
+    checkpoint: Annotated[
+        Path, typer.Option(help="Trained network checkpoint to analyse.")
+    ] = DEFAULT_FULL_CHECKPOINT,
+    images_dir: Annotated[
+        Path, typer.Option(help="Folder with one subfolder of images per class.")
+    ] = DEFAULT_IMAGES_DIR,
+    split_path: Annotated[Path, typer.Option("--split", help="Split CSV.")] = DEFAULT_SPLIT_PATH,
+    mistakes: Annotated[int, typer.Option(min=1, help="Number of mistakes to show.")] = 12,
+    examples: Annotated[
+        int, typer.Option(min=1, help="Number of classes with a Grad-CAM example pair.")
+    ] = 3,
+    mistakes_output: Annotated[
+        Path, typer.Option(help="PNG file for the grid of mistakes.")
+    ] = DEFAULT_MISTAKES_PATH,
+    gradcam_output: Annotated[
+        Path, typer.Option(help="PNG file for the Grad-CAM examples.")
+    ] = DEFAULT_GRADCAM_PATH,
+) -> None:
+    from wastevision.evaluation.error_analysis import (
+        gradcam_pairs,
+        most_confused_pairs,
+        worst_mistakes,
+    )
+    from wastevision.evaluation.gradcam import explain_image, load_model_view
+    from wastevision.evaluation.metrics import classification_report
+    from wastevision.evaluation.plots import save_image_grid
+    from wastevision.evaluation.predictions import load_trained_model, predict_split
+
+    try:
+        model = load_trained_model(checkpoint)
+        predictions = predict_split(checkpoint, images_dir, split_path, "test")
+        records = load_image_records(split_path, images_dir, "test")
+    except (SplitFileError, ValueError, OSError) as error:
+        typer.echo(f"Error: {error}", err=True)
+        raise typer.Exit(code=1) from error
+
+    labels = predictions.labels
+    probabilities = predictions.probabilities
+    report = classification_report(labels.tolist(), predictions.predicted.tolist(), CLASS_NAMES)
+    typer.echo(f"Test split ({len(labels)} images), {int((~predictions.correct).sum())} mistakes")
+    echo_confused_pairs(most_confused_pairs(report.confusion, count=len(CLASS_NAMES)))
+
+    worst = worst_mistakes(labels, probabilities, mistakes)
+    if not worst:
+        typer.echo("No mistakes to show.")
+        return
+    typer.echo(f"{'file':<28} {'true':<10} {'predicted':<10} {'confidence':>10}")
+    for index in worst:
+        predicted = int(predictions.predicted[index])
+        typer.echo(
+            f"{records[index].path.relative_to(images_dir).as_posix():<28}"
+            f" {CLASS_NAMES[labels[index]]:<10} {CLASS_NAMES[predicted]:<10}"
+            f" {predictions.confidences[index]:>10.4f}"
+        )
+    save_image_grid(
+        [load_model_view(records[index].path) for index in worst],
+        [describe_prediction(probabilities[index], labels[index]) for index in worst],
+        mistakes_output,
+        GRID_COLUMNS,
+    )
+    typer.echo(f"Wrote {len(worst)} mistakes to {mistakes_output}")
+
+    pairs = gradcam_pairs(labels, probabilities, examples)
+    if not pairs:
+        typer.echo("No class has both a correct and a wrong prediction.")
+        return
+    images: list[np.ndarray] = []
+    titles: list[str] = []
+    for pair in pairs:
+        for index in pair:
+            predicted = int(predictions.predicted[index])
+            image, overlay = explain_image(model, records[index].path, predicted)
+            description = describe_prediction(probabilities[index], labels[index])
+            images.extend([image, overlay])
+            titles.extend([description, f"Grad-CAM for {CLASS_NAMES[predicted]}"])
+    save_image_grid(images, titles, gradcam_output, GRID_COLUMNS)
+    typer.echo(f"Wrote {len(pairs)} Grad-CAM example pairs to {gradcam_output}")
