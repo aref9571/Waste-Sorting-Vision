@@ -125,6 +125,15 @@ def test_overlay_heatmap_blends_colors_into_the_image():
     assert overlay_heatmap(image, heatmap, alpha=0.0).tolist() == image.tolist()
 
 
+def test_overlay_heatmap_stays_within_zero_and_one_for_float32_images():
+    image = np.ones((4, 5, 3), dtype=np.float32)
+    heatmap = np.linspace(0, 1, 20, dtype=np.float32).reshape(4, 5)
+
+    overlay = overlay_heatmap(image, heatmap)
+
+    assert overlay.max() <= 1.0
+
+
 def test_overlay_heatmap_rejects_a_different_size():
     with pytest.raises(ValueError, match="height and width"):
         overlay_heatmap(np.zeros((4, 5, 3)), np.zeros((5, 4)))

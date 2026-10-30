@@ -64,7 +64,7 @@ def overlay_heatmap(
     if not 0 <= alpha <= 1:
         raise ValueError("alpha must be between 0 and 1")
     colored = colormaps["jet"](heatmap)[..., :3]
-    return (1 - alpha) * image + alpha * colored
+    return np.clip((1 - alpha) * image + alpha * colored, 0.0, 1.0)
 
 
 def model_input(path: Path) -> torch.Tensor:
