@@ -5,7 +5,12 @@ torch = pytest.importorskip("torch")
 from PIL import Image
 
 from wastevision.config import IMAGE_SIZE, IMAGENET_MEAN, IMAGENET_STD
-from wastevision.data.transforms import denormalize, evaluation_transforms, training_transforms
+from wastevision.data.transforms import (
+    denormalize,
+    evaluation_transforms,
+    perturbed_evaluation_transforms,
+    training_transforms,
+)
 
 IMAGE_SIZES: tuple[tuple[int, int], ...] = ((512, 384), (384, 512), (224, 224), (100, 80))
 
@@ -93,3 +98,25 @@ def test_denormalize_clamps_to_displayable_range():
     restored = denormalize(torch.full((3, 2, 2), 10.0))
 
     assert restored.max() == 1.0
+
+
+def test_perturbed_evaluation_transform_applies_the_perturbation_first():
+    seen_sizes: list[tuple[int, int]] = []
+
+    def to_mean_color(image: Image.Image) -> Image.Image:
+        seen_sizes.append(image.size)
+        return mean_color_image(image.size)
+
+    tensor = perturbed_evaluation_transforms(to_mean_color)(noise_image(seed=2))
+
+    assert seen_sizes == [(512, 384)]
+    assert tensor.shape == (3, IMAGE_SIZE, IMAGE_SIZE)
+    assert tensor.abs().max() < 0.02
+
+
+def test_perturbed_evaluation_transform_without_a_change_equals_evaluation():
+    image = noise_image(seed=3)
+
+    perturbed = perturbed_evaluation_transforms(lambda unchanged: unchanged)(image)
+
+    assert torch.equal(perturbed, evaluation_transforms()(image))

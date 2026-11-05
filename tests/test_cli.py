@@ -568,3 +568,61 @@ def test_error_analysis_without_a_correct_image_of_the_class_skips_grad_cam(
     assert "No class has both a correct and a wrong prediction." in result.stdout
     assert (tmp_path / "img" / "mistakes.png").is_file()
     assert not (tmp_path / "img" / "gradcam.png").exists()
+
+
+def save_untrained_checkpoint(path: Path) -> None:
+    torch = pytest.importorskip("torch")
+    from wastevision.training.loop import EpochMetrics, save_checkpoint
+    from wastevision.training.model import build_model
+
+    torch.manual_seed(0)
+    save_checkpoint(build_model(pretrained=False), path, 1, EpochMetrics(1.0, 0.5, 0.5))
+
+
+def test_robustness_prints_every_perturbation(tiny_dataset: tuple[Path, Path], tmp_path: Path):
+    pytest.importorskip("torch")
+    from wastevision.evaluation.robustness import PERTURBATIONS
+
+    images_dir, split_path = tiny_dataset
+    checkpoint = tmp_path / "best.pt"
+    save_untrained_checkpoint(checkpoint)
+
+    result = runner.invoke(
+        app,
+        [
+            "robustness",
+            "--checkpoint",
+            str(checkpoint),
+            "--images-dir",
+            str(images_dir),
+            "--split",
+            str(split_path),
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert f"Test split ({len(CLASS_NAMES)} images)" in result.stdout
+    assert "clean: accuracy" in result.stdout
+    for name in PERTURBATIONS:
+        assert name in result.stdout
+
+
+def test_robustness_reports_a_missing_checkpoint(tiny_dataset: tuple[Path, Path], tmp_path: Path):
+    pytest.importorskip("torch")
+    images_dir, split_path = tiny_dataset
+
+    result = runner.invoke(
+        app,
+        [
+            "robustness",
+            "--checkpoint",
+            str(tmp_path / "missing.pt"),
+            "--images-dir",
+            str(images_dir),
+            "--split",
+            str(split_path),
+        ],
+    )
+
+    assert result.exit_code == 1
+    assert "Error: Checkpoint" in result.stderr

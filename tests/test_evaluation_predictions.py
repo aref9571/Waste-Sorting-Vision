@@ -5,12 +5,16 @@ import pytest
 
 torch = pytest.importorskip("torch")
 
+from PIL import Image
 from torch import nn
 
+from wastevision.data.dataset import ImageRecord, load_image_records
+from wastevision.data.transforms import evaluation_transforms
 from wastevision.evaluation.predictions import (
     Predictions,
     load_trained_model,
     predict_probabilities,
+    predict_records,
     predict_split,
 )
 from wastevision.labels import CLASS_NAMES
@@ -104,3 +108,44 @@ def test_predict_split_is_deterministic(tiny_dataset: tuple[Path, Path], tmp_pat
     second = predict_split(checkpoint, images_dir, split_path, "validation")
 
     assert np.array_equal(first.probabilities, second.probabilities)
+
+
+def test_predict_records_keeps_the_record_order_and_uses_the_loader(tmp_path: Path):
+    torch.manual_seed(0)
+    model = build_model(pretrained=False)
+    records = [
+        ImageRecord(tmp_path / "b.jpg", "trash", "real"),
+        ImageRecord(tmp_path / "a.jpg", "cardboard", "real"),
+        ImageRecord(tmp_path / "c.jpg", "metal", "real"),
+    ]
+    loaded: list[str] = []
+
+    def load_gray_image(path: Path) -> Image.Image:
+        loaded.append(path.name)
+        return Image.new("RGB", (64, 48), (128, 128, 128))
+
+    predictions = predict_records(
+        model, records, evaluation_transforms(), load_gray_image, batch_size=2
+    )
+
+    assert loaded == ["b.jpg", "a.jpg", "c.jpg"]
+    assert predictions.labels.tolist() == [
+        CLASS_NAMES.index("trash"),
+        CLASS_NAMES.index("cardboard"),
+        CLASS_NAMES.index("metal"),
+    ]
+    assert predictions.probabilities.shape == (3, len(CLASS_NAMES))
+    assert np.allclose(predictions.probabilities[0], predictions.probabilities[1])
+
+
+def test_predict_records_matches_predict_split(tiny_dataset: tuple[Path, Path], tmp_path: Path):
+    images_dir, split_path = tiny_dataset
+    checkpoint = tmp_path / "best.pt"
+    save_untrained_checkpoint(checkpoint)
+    records = load_image_records(split_path, images_dir, "test")
+
+    from_records = predict_records(load_trained_model(checkpoint), records, evaluation_transforms())
+    from_split = predict_split(checkpoint, images_dir, split_path, "test")
+
+    assert np.array_equal(from_records.labels, from_split.labels)
+    assert np.allclose(from_records.probabilities, from_split.probabilities, atol=1e-6)

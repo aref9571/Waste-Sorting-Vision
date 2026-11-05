@@ -1,3 +1,4 @@
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -6,7 +7,15 @@ import torch
 from torch import nn
 
 from wastevision.config import Settings
-from wastevision.data.image_dataset import make_data_loader, split_dataset
+from wastevision.data.dataset import ImageRecord
+from wastevision.data.image_dataset import (
+    ImageLoader,
+    ImageTransform,
+    WasteImageDataset,
+    load_rgb_image,
+    make_data_loader,
+    split_dataset,
+)
 from wastevision.training.loop import Batches, load_checkpoint
 from wastevision.training.model import build_model
 
@@ -62,5 +71,18 @@ def predict_split(
 ) -> Predictions:
     model = load_trained_model(checkpoint_path)
     dataset = split_dataset(split_path, images_dir, split)
+    loader = make_data_loader(dataset, batch_size, shuffle=False, settings=settings)
+    return predict_probabilities(model, loader)
+
+
+def predict_records(
+    model: nn.Module,
+    records: Sequence[ImageRecord],
+    transform: ImageTransform,
+    load_image: ImageLoader = load_rgb_image,
+    batch_size: int = BATCH_SIZE,
+    settings: Settings | None = None,
+) -> Predictions:
+    dataset = WasteImageDataset(records, transform, load_image)
     loader = make_data_loader(dataset, batch_size, shuffle=False, settings=settings)
     return predict_probabilities(model, loader)

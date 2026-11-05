@@ -1,4 +1,7 @@
+from collections.abc import Callable
+
 import torch
+from PIL import Image
 from torchvision.transforms import v2
 
 from wastevision.config import IMAGE_SIZE, IMAGENET_MEAN, IMAGENET_STD, RESIZE_SIZE
@@ -41,6 +44,12 @@ def evaluation_transforms() -> v2.Compose:
             *to_normalized_tensor(),
         ]
     )
+
+
+def perturbed_evaluation_transforms(
+    perturbation: Callable[[Image.Image], Image.Image],
+) -> v2.Compose:
+    return v2.Compose([perturbation, *evaluation_transforms().transforms])
 
 
 def denormalize(tensor: torch.Tensor) -> torch.Tensor:

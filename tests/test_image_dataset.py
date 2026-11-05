@@ -120,3 +120,22 @@ def test_data_loader_shuffle_is_reproducible_with_a_seed(tiny_dataset: tuple[Pat
     assert label_order(1) == label_order(1)
     assert sorted(label_order(1)) == list(range(len(CLASS_NAMES)))
     assert any(label_order(seed) != label_order(1) for seed in range(2, 6))
+
+
+def test_dataset_uses_the_given_image_loader(tmp_path: Path):
+    loaded: list[Path] = []
+
+    def load_white_image(path: Path) -> Image.Image:
+        loaded.append(path)
+        return Image.new("RGB", (64, 48), (255, 255, 255))
+
+    path = tmp_path / "not-read.png"
+    dataset = WasteImageDataset(
+        [ImageRecord(path, "paper", "real")], evaluation_transforms(), load_white_image
+    )
+
+    tensor, label = dataset[0]
+
+    assert loaded == [path]
+    assert tensor.shape == (3, IMAGE_SIZE, IMAGE_SIZE)
+    assert label == CLASS_NAMES.index("paper")

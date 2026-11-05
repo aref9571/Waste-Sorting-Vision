@@ -33,6 +33,8 @@ if TYPE_CHECKING:
     from wastevision.evaluation.calibration import CalibrationBin
     from wastevision.evaluation.error_analysis import ConfusedPair
     from wastevision.evaluation.metrics import ClassificationReport
+    from wastevision.evaluation.predictions import Predictions
+    from wastevision.evaluation.robustness import RobustnessRow
     from wastevision.training.loop import EpochRecord
 
 app = typer.Typer(no_args_is_help=True)
@@ -460,3 +462,57 @@ def error_analysis(
             titles.extend([description, f"Grad-CAM for {CLASS_NAMES[predicted]}"])
     save_image_grid(images, titles, gradcam_output, GRID_COLUMNS)
     typer.echo(f"Wrote {len(pairs)} Grad-CAM example pairs to {gradcam_output}")
+
+
+def report_for(predictions: "Predictions") -> "ClassificationReport":
+    from wastevision.evaluation.metrics import classification_report
+
+    return classification_report(
+        predictions.labels.tolist(), predictions.predicted.tolist(), CLASS_NAMES
+    )
+
+
+def echo_robustness(rows: "list[RobustnessRow]") -> None:
+    typer.echo(f"{'perturbation':<30} {'accuracy':>10} {'drop':>8} {'macro-F1':>10} {'drop':>8}")
+    for row in rows:
+        typer.echo(
+            f"{row.name:<30} {row.accuracy:>10.4f} {row.accuracy_drop:>8.4f}"
+            f" {row.macro_f1:>10.4f} {row.macro_f1_drop:>8.4f}"
+        )
+
+
+@app.command()
+def robustness(
+    checkpoint: Annotated[
+        Path, typer.Option(help="Trained network checkpoint to evaluate.")
+    ] = DEFAULT_FULL_CHECKPOINT,
+    images_dir: Annotated[
+        Path, typer.Option(help="Folder with one subfolder of images per class.")
+    ] = DEFAULT_IMAGES_DIR,
+    split_path: Annotated[Path, typer.Option("--split", help="Split CSV.")] = DEFAULT_SPLIT_PATH,
+) -> None:
+    from wastevision.data.transforms import evaluation_transforms, perturbed_evaluation_transforms
+    from wastevision.evaluation.predictions import load_trained_model, predict_records
+    from wastevision.evaluation.robustness import PERTURBATIONS, robustness_rows
+
+    try:
+        model = load_trained_model(checkpoint)
+        records = load_image_records(split_path, images_dir, "test")
+        clean_predictions = predict_records(model, records, evaluation_transforms())
+        perturbed_predictions = {
+            name: predict_records(model, records, perturbed_evaluation_transforms(perturbation))
+            for name, perturbation in PERTURBATIONS.items()
+        }
+    except (SplitFileError, ValueError, OSError) as error:
+        typer.echo(f"Error: {error}", err=True)
+        raise typer.Exit(code=1) from error
+
+    clean = report_for(clean_predictions)
+    typer.echo(f"Test split ({len(records)} images)")
+    typer.echo(f"clean: accuracy {clean.accuracy:.4f}, macro-F1 {clean.macro_f1:.4f}")
+    echo_robustness(
+        robustness_rows(
+            clean,
+            {name: report_for(predictions) for name, predictions in perturbed_predictions.items()},
+        )
+    )

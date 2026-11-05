@@ -11,6 +11,7 @@ from wastevision.data.transforms import evaluation_transforms, training_transfor
 from wastevision.labels import CLASS_NAMES
 
 ImageTransform = Callable[[Image.Image], torch.Tensor]
+ImageLoader = Callable[[Path], Image.Image]
 
 
 def load_rgb_image(path: Path) -> Image.Image:
@@ -19,16 +20,22 @@ def load_rgb_image(path: Path) -> Image.Image:
 
 
 class WasteImageDataset(Dataset[tuple[torch.Tensor, int]]):
-    def __init__(self, records: Sequence[ImageRecord], transform: ImageTransform) -> None:
+    def __init__(
+        self,
+        records: Sequence[ImageRecord],
+        transform: ImageTransform,
+        load_image: ImageLoader = load_rgb_image,
+    ) -> None:
         self.records = list(records)
         self.transform = transform
+        self.load_image = load_image
 
     def __len__(self) -> int:
         return len(self.records)
 
     def __getitem__(self, index: int) -> tuple[torch.Tensor, int]:
         record = self.records[index]
-        image = load_rgb_image(record.path)
+        image = self.load_image(record.path)
         return self.transform(image), CLASS_NAMES.index(record.class_name)
 
 
