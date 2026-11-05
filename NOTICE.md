@@ -39,3 +39,12 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
+
+## RealWaste dataset
+
+The real-world check in [docs/evaluation.md](docs/evaluation.md#real-world-photos-and-robustness) uses the RealWaste dataset by S. Single, S. Iranmanesh and R. Raad: photos of waste items received at the Whyte's Gully Waste and Resource Recovery facility in Wollongong, Australia.
+
+- Repository: https://github.com/sam-single/realwaste (version used: commit 156e8e9154eeb163df30fcfd767f55b19633bb06)
+- Paper: S. Single, S. Iranmanesh and R. Raad, "RealWaste: A Novel Real-Life Data Set for Landfill Waste Classification Using Deep Learning", Information 14(12), 633, 2023. https://doi.org/10.3390/info14120633
+
+The authors ask everyone who uses the dataset to cite this paper. The repository states that RealWaste is licensed under the Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International licence (CC BY-NC-SA 4.0), https://creativecommons.org/licenses/by-nc-sa/4.0/. Its images are not included in this repository and are downloaded separately. Only measured results (metrics and a confusion matrix) are published here.

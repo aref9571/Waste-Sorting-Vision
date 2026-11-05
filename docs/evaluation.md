@@ -230,3 +230,105 @@ wastevision error-analysis --mistakes 16
 ```
 
 `error-analysis` loads `runs/full/best.pt`, predicts the test split, prints the most frequent confusions and the list of the most confident mistakes (file, true class, predicted class, confidence), and writes [img/misclassified.png](img/misclassified.png) and [img/gradcam.png](img/gradcam.png). `--mistakes` sets the number of mistakes in the grid (default 12) and `--examples` the number of classes in the Grad-CAM figure (default 3). Measured on 2026-10-30 on a 4-core Intel Xeon CPU at 2.10 GHz with PyTorch 2.14.1: about 6 seconds.
+
+## Real-world photos and robustness
+
+The test split comes from the same collection as the training images: single objects on a white posterboard, photographed in the same way. This section measures how much of the test accuracy is left when the images change. It uses two checks: small changes to the test images themselves (robustness), and photos from a different collection taken in a real waste facility (domain shift). Both checks only measure the final model from the sections above; nothing was trained or chosen with them.
+
+### Robustness to image changes
+
+Each test image is changed before the usual resize to 256 pixels and centre crop to 224 × 224 pixels. The changes are applied to the original 512 × 384 image ([src/wastevision/evaluation/robustness.py](../src/wastevision/evaluation/robustness.py)):
+
+- Gaussian blur with a radius of 2 pixels. After the resize to 256 pixels this is about 1 pixel, so it is a mild blur, similar to a slightly out-of-focus phone photo.
+- Brightness +40% and −40% (every pixel value multiplied by 1.4 or 0.6, clipped to 255).
+- JPEG compression with quality 30.
+- Rotation by 15 degrees, with black corners (the same fill as the training rotation, which goes up to 10 degrees).
+
+| Test images (378) | Accuracy | Drop | Macro-F1 | Drop |
+|---|---|---|---|---|
+| Unchanged | 0.868 | | 0.819 | |
+| Gaussian blur, radius 2 px | 0.847 | 0.021 | 0.812 | 0.006 |
+| Brightness +40% | 0.847 | 0.021 | 0.793 | 0.026 |
+| Brightness −40% | 0.857 | 0.011 | 0.810 | 0.009 |
+| JPEG quality 30 | 0.873 | −0.005 | 0.821 | −0.003 |
+| Rotation 15 degrees | 0.852 | 0.016 | 0.805 | 0.013 |
+
+No change costs more than about 2 points of accuracy or 3 points of macro-F1. Stronger brightness hurts macro-F1 most, which fits the training augmentation: colour jitter only changes brightness by up to 20%. JPEG quality 30 makes no difference (the small gain is 2 images out of 378 and is noise). With 378 test images, one image is 0.26 points of accuracy, so differences below about 1 point should not be read as real. The model is stable against these photo-quality changes on its own kind of images. They do not change the background or the kind of objects, so they say little about real use.
+
+### Real-world photos (RealWaste)
+
+The real-world check uses the RealWaste dataset (Single et al., 2023): photos of waste items that arrived at the Whyte's Gully Waste and Resource Recovery facility in Wollongong, Australia. Each item lies alone on a grey floor, photographed from above at 524 × 524 pixels. Many items are dirty, crushed, torn or partly broken. These are not household photos taken for this project. They are an openly available dataset with labels from its authors, used here because it is a different collection with ordinary backgrounds.
+
+RealWaste has nine classes. The six that match this project's classes are used, with all of their 3,587 images. Food Organics, Textile Trash and Vegetation have no matching class and are left out.
+
+| RealWaste class | Class here | Photos |
+|---|---|---|
+| Cardboard | cardboard | 461 |
+| Glass | glass | 420 |
+| Metal | metal | 790 |
+| Paper | paper | 500 |
+| Plastic | plastic | 921 |
+| Miscellaneous Trash | trash | 495 |
+
+The two collections define some classes differently. RealWaste's Miscellaneous Trash includes hair, rags, plastic bags, sticks and broken household objects, and its Plastic includes plastic bags, dirty food tubs and lids, which TrashNet's labelling would often put under trash. Its Cardboard includes drink cartons and paper cups. Part of the drop below therefore comes from different labels, not only from different photos.
+
+| | TrashNet test split | RealWaste |
+|---|---|---|
+| Images | 378 | 3,587 |
+| Accuracy | 0.868 | 0.484 |
+| Macro-F1 | 0.819 | 0.456 |
+| Mean confidence | | 0.837 |
+| Expected calibration error | 0.069 | 0.353 |
+
+| Class | Precision | Recall | F1 | TrashNet test F1 |
+|---|---|---|---|---|
+| cardboard | 0.522 | 0.278 | 0.363 | 0.937 |
+| glass | 0.523 | 0.276 | 0.361 | 0.883 |
+| metal | 0.619 | 0.591 | 0.605 | 0.891 |
+| paper | 0.439 | 0.708 | 0.542 | 0.893 |
+| plastic | 0.559 | 0.501 | 0.528 | 0.859 |
+| trash | 0.285 | 0.422 | 0.340 | 0.450 |
+
+![Confusion matrix of the neural network on the RealWaste photos](img/real-confusion-matrix.png)
+
+Accuracy falls from 0.868 to 0.484, and macro-F1 from 0.819 to 0.456. The largest confusions are plastic predicted as trash (181), cardboard predicted as paper (173), glass predicted as plastic (151) and metal predicted as trash (119). Only 28% of the cardboard and glass photos are recognised. Cardboard in RealWaste is often a thin printed carton, a paper cup or a torn piece, which looks like paper. Glass is often a broken piece or a jar instead of a whole bottle, and clear pieces look like clear plastic. Crushed and dirty items of every material are often predicted as trash, which matches the error analysis above: in TrashNet, crumpled and irregular shapes are a sign of trash.
+
+The model is also much too confident on these photos. The mean confidence is 0.837 while the accuracy is 0.484. Of the 1,923 photos predicted with a confidence of 0.9 or more, only 61.6% are correct, compared with 94.8% in the same bin on the TrashNet test split. A confidence threshold chosen on TrashNet will therefore answer far too many real photos wrongly.
+
+#### Why lab accuracy overstates real-world accuracy
+
+The training, validation and test images all come from one collection: the same white posterboard, the same lighting, mostly clean and whole items, the same photographers. A random split of one collection measures how well the model handles new images *of that collection*. It cannot show what the model learned that only holds there, for example that a plain white background goes with every class, or that clean and whole means recyclable and crumpled means trash. Photos from somewhere else differ in background, light, camera, distance, the condition of the items and even in how the classes are defined. This change between the training data and the data in use is called domain shift. The robustness check shows that simple photo-quality changes are not the problem. The RealWaste result shows that the change of collection is: the model loses almost half of its accuracy and stays confident while doing so.
+
+What this means for the project:
+
+- The test result describes TrashNet-like photos. For photos taken by users at home, the RealWaste number is the more honest guide, even though its labels do not match exactly.
+- Training with more varied backgrounds and item conditions, for example random background replacement and stronger colour changes, is the most direct improvement. It will be judged on the validation split.
+- The "unsure" answer of the service cannot fix domain shift alone, because the model is confident on many wrong real-world photos.
+
+### Reproduce the robustness and real-world checks
+
+```bash
+wastevision robustness
+```
+
+`robustness` loads `runs/full/best.pt`, predicts the test split once unchanged and once for each change, and prints accuracy, macro-F1 and the drop of each. Measured on 2026-11-05 on a 4-core Intel Xeon CPU at 2.10 GHz with PyTorch 2.14.1: about 23 seconds.
+
+The RealWaste photos are not included in this repository. Download them from the authors' repository at the version used here and copy the six matching classes into `data/real/`, one folder per class:
+
+```bash
+git clone --filter=blob:none --no-checkout https://github.com/sam-single/realwaste.git realwaste
+cd realwaste
+git checkout 156e8e9154eeb163df30fcfd767f55b19633bb06 -- RealWaste/Cardboard RealWaste/Glass \
+    RealWaste/Metal RealWaste/Paper RealWaste/Plastic "RealWaste/Miscellaneous Trash"
+cd ..
+mkdir -p data/real
+cp -r realwaste/RealWaste/Cardboard data/real/cardboard
+cp -r realwaste/RealWaste/Glass data/real/glass
+cp -r realwaste/RealWaste/Metal data/real/metal
+cp -r realwaste/RealWaste/Paper data/real/paper
+cp -r realwaste/RealWaste/Plastic data/real/plastic
+cp -r "realwaste/RealWaste/Miscellaneous Trash" data/real/trash
+wastevision evaluate-real
+```
+
+`evaluate-real` reads every photo in `data/real/<class>/` (the folder name is the label), prints the number of photos per class, the metrics, the confusion matrix, the mean confidence and one line per photo, and writes [img/real-confusion-matrix.png](img/real-confusion-matrix.png). It accepts JPEG, PNG and WebP files. On loading, each photo is turned upright according to its EXIF orientation and rebuilt from its pixels only, so EXIF data such as a GPS location never reaches the model or a saved figure. `--examples-output` also writes one example prediction per class as a figure. It was not used here, because the RealWaste licence does not allow the photos to be redistributed under this repository's terms. The same command works for any folder of labelled photos, for example your own. Measured on 2026-11-05 on the same CPU: about 2.5 minutes for 3,587 photos.

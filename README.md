@@ -14,7 +14,7 @@ In development.
 | Convolutional neural network: two-stage training with `wastevision train`, results on the validation split | Done |
 | Evaluation of the neural network on the test split, calibration and comparison with the baseline | Done |
 | Error analysis with Grad-CAM explanations | Done |
-| Robustness checks and a test on real photos | Planned |
+| Robustness checks and a test on real-world photos (RealWaste) | Done |
 | FastAPI service, web page and Docker image | Planned |
 
 ## Development setup
@@ -104,3 +104,12 @@ Show the most confident mistakes and Grad-CAM maps of the regions the network us
 ```bash
 wastevision error-analysis --mistakes 16
 ```
+
+Check how the model copes with changed test images (blur, brightness, JPEG compression, rotation) and with real-world photos from a waste facility (the RealWaste dataset, downloaded separately into `data/real/`):
+
+```bash
+wastevision robustness
+wastevision evaluate-real
+```
+
+The changed test images cost at most about 2 points of accuracy. On the 3,587 RealWaste photos of the six matching classes, accuracy falls to 0.484 and macro-F1 to 0.456, while the model stays confident (mean confidence 0.837). The test split overstates real-world accuracy; see [docs/evaluation.md](docs/evaluation.md#real-world-photos-and-robustness).
