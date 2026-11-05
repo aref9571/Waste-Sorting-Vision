@@ -626,3 +626,109 @@ def test_robustness_reports_a_missing_checkpoint(tiny_dataset: tuple[Path, Path]
 
     assert result.exit_code == 1
     assert "Error: Checkpoint" in result.stderr
+
+
+def make_real_photos(real_dir: Path) -> None:
+    from PIL import Image
+
+    for class_name, color in (("glass", (40, 160, 70)), ("trash", (200, 30, 40))):
+        (real_dir / class_name).mkdir(parents=True)
+        for index in range(2):
+            Image.new("RGB", (64, 48), color).save(real_dir / class_name / f"photo{index}.jpg")
+
+
+def evaluate_real_arguments(real_dir: Path, checkpoint: Path, tmp_path: Path) -> list[str]:
+    return [
+        "evaluate-real",
+        "--checkpoint",
+        str(checkpoint),
+        "--real-dir",
+        str(real_dir),
+        "--confusion-output",
+        str(tmp_path / "img" / "real-confusion.png"),
+    ]
+
+
+def test_evaluate_real_prints_metrics_and_every_photo(tmp_path: Path):
+    pytest.importorskip("torch")
+    pytest.importorskip("matplotlib")
+    real_dir = tmp_path / "real"
+    make_real_photos(real_dir)
+    checkpoint = tmp_path / "best.pt"
+    save_untrained_checkpoint(checkpoint)
+
+    result = runner.invoke(app, evaluate_real_arguments(real_dir, checkpoint, tmp_path))
+
+    assert result.exit_code == 0, result.output
+    assert f"Real photos (4 images) in {real_dir}:" in result.stdout
+    assert "  glass: 2" in result.stdout
+    assert "  metal: 0" in result.stdout
+    assert "Warning: glass has fewer than 10 photos" in result.stdout
+    assert "macro-F1:" in result.stdout
+    assert "mean confidence:" in result.stdout
+    for name in ("glass/photo0.jpg", "glass/photo1.jpg", "trash/photo0.jpg", "trash/photo1.jpg"):
+        assert name in result.stdout
+    assert (tmp_path / "img" / "real-confusion.png").is_file()
+    assert "example predictions" not in result.stdout
+    assert sorted(path.name for path in (tmp_path / "img").iterdir()) == ["real-confusion.png"]
+
+
+def test_evaluate_real_writes_examples_only_when_asked(tmp_path: Path):
+    pytest.importorskip("torch")
+    pytest.importorskip("matplotlib")
+    real_dir = tmp_path / "real"
+    make_real_photos(real_dir)
+    checkpoint = tmp_path / "best.pt"
+    save_untrained_checkpoint(checkpoint)
+    examples = tmp_path / "img" / "real-examples.png"
+
+    result = runner.invoke(
+        app,
+        [
+            *evaluate_real_arguments(real_dir, checkpoint, tmp_path),
+            "--examples-output",
+            str(examples),
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert f"Wrote 2 example predictions to {examples}" in result.stdout
+    assert examples.is_file()
+
+
+def test_evaluate_real_reports_a_wrong_folder(tmp_path: Path):
+    pytest.importorskip("torch")
+    pytest.importorskip("matplotlib")
+    real_dir = tmp_path / "real"
+    (real_dir / "bottles").mkdir(parents=True)
+    checkpoint = tmp_path / "best.pt"
+    save_untrained_checkpoint(checkpoint)
+
+    result = runner.invoke(app, evaluate_real_arguments(real_dir, checkpoint, tmp_path))
+
+    assert result.exit_code == 1
+    assert "is not a class folder" in result.stderr
+    assert not (tmp_path / "img").exists()
+
+
+def test_evaluate_real_reports_a_missing_checkpoint(tmp_path: Path):
+    pytest.importorskip("torch")
+    pytest.importorskip("matplotlib")
+    real_dir = tmp_path / "real"
+    make_real_photos(real_dir)
+
+    result = runner.invoke(
+        app, evaluate_real_arguments(real_dir, tmp_path / "missing.pt", tmp_path)
+    )
+
+    assert result.exit_code == 1
+    assert "Error: Checkpoint" in result.stderr
+
+
+def test_echo_photo_counts_warns_only_for_small_classes(capsys: pytest.CaptureFixture[str]):
+    cli.echo_photo_counts({"glass": 10, "trash": 9})
+
+    output = capsys.readouterr().out
+    assert "  glass: 10" in output
+    assert "Warning: glass" not in output
+    assert "Warning: trash has fewer than 10 photos" in output

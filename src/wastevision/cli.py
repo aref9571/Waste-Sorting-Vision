@@ -18,6 +18,12 @@ from wastevision.data.download import (
     download_dataset,
     sha256_of_file,
 )
+from wastevision.data.real_photos import (
+    DEFAULT_REAL_DIR,
+    RealPhotoError,
+    count_photos_per_class,
+    find_real_photos,
+)
 from wastevision.data.split import (
     DEFAULT_SPLIT_PATH,
     SPLIT_NAMES,
@@ -53,7 +59,9 @@ DEFAULT_CONFUSION_PATH = Path("docs/img/confusion-matrix.png")
 DEFAULT_RELIABILITY_PATH = Path("docs/img/reliability-diagram.png")
 DEFAULT_MISTAKES_PATH = Path("docs/img/misclassified.png")
 DEFAULT_GRADCAM_PATH = Path("docs/img/gradcam.png")
+DEFAULT_REAL_CONFUSION_PATH = Path("docs/img/real-confusion-matrix.png")
 GRID_COLUMNS = 4
+MIN_PHOTOS_PER_CLASS = 10
 
 
 class TrainingStage(StrEnum):
@@ -516,3 +524,82 @@ def robustness(
             {name: report_for(predictions) for name, predictions in perturbed_predictions.items()},
         )
     )
+
+
+def echo_photo_counts(counts: dict[str, int]) -> None:
+    for class_name, count in counts.items():
+        typer.echo(f"  {class_name}: {count}")
+        if count < MIN_PHOTOS_PER_CLASS:
+            typer.echo(
+                f"Warning: {class_name} has fewer than {MIN_PHOTOS_PER_CLASS} photos,"
+                " so its scores are very uncertain."
+            )
+
+
+@app.command("evaluate-real")
+def evaluate_real(
+    checkpoint: Annotated[
+        Path, typer.Option(help="Trained network checkpoint to evaluate.")
+    ] = DEFAULT_FULL_CHECKPOINT,
+    real_dir: Annotated[
+        Path, typer.Option(help="Folder with one subfolder of real photos per class.")
+    ] = DEFAULT_REAL_DIR,
+    confusion_output: Annotated[
+        Path, typer.Option(help="PNG file for the confusion matrix.")
+    ] = DEFAULT_REAL_CONFUSION_PATH,
+    examples_output: Annotated[
+        Path | None,
+        typer.Option(help="PNG file for one example prediction per class [default: none]."),
+    ] = None,
+) -> None:
+    from wastevision.data.preview import first_record_per_class
+    from wastevision.data.real_photos import load_photo_without_metadata
+    from wastevision.data.transforms import evaluation_transforms
+    from wastevision.evaluation.gradcam import load_model_view
+    from wastevision.evaluation.plots import save_confusion_matrix, save_image_grid
+    from wastevision.evaluation.predictions import load_trained_model, predict_records
+
+    try:
+        records = find_real_photos(real_dir)
+        model = load_trained_model(checkpoint)
+        predictions = predict_records(
+            model, records, evaluation_transforms(), load_photo_without_metadata
+        )
+    except (RealPhotoError, ValueError, OSError) as error:
+        typer.echo(f"Error: {error}", err=True)
+        raise typer.Exit(code=1) from error
+
+    typer.echo(f"Real photos ({len(records)} images) in {real_dir}:")
+    echo_photo_counts(count_photos_per_class(records))
+    report = report_for(predictions)
+    echo_evaluation(report)
+    echo_confusion_matrix(report)
+    typer.echo(f"mean confidence: {predictions.confidences.mean():.4f}")
+    typer.echo(f"{'file':<36} {'true':<10} {'predicted':<10} {'confidence':>10}")
+    for record, label, probabilities in zip(
+        records, predictions.labels, predictions.probabilities, strict=True
+    ):
+        predicted = int(np.argmax(probabilities))
+        typer.echo(
+            f"{record.path.relative_to(real_dir).as_posix():<36} {CLASS_NAMES[label]:<10}"
+            f" {CLASS_NAMES[predicted]:<10} {probabilities[predicted]:>10.4f}"
+        )
+
+    save_confusion_matrix(
+        report.confusion, CLASS_NAMES, confusion_output, "Neural network, real photos"
+    )
+    typer.echo(f"Wrote confusion matrix to {confusion_output}")
+    if examples_output is None:
+        return
+    examples = first_record_per_class(records)
+    indices = [records.index(record) for record in examples]
+    save_image_grid(
+        [load_model_view(record.path, load_photo_without_metadata) for record in examples],
+        [
+            describe_prediction(predictions.probabilities[index], predictions.labels[index])
+            for index in indices
+        ],
+        examples_output,
+        GRID_COLUMNS,
+    )
+    typer.echo(f"Wrote {len(examples)} example predictions to {examples_output}")

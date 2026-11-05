@@ -7,7 +7,7 @@ from torch import nn
 from torch.nn import functional
 from torchvision.models import MobileNetV3
 
-from wastevision.data.image_dataset import load_rgb_image
+from wastevision.data.image_dataset import ImageLoader, load_rgb_image
 from wastevision.data.transforms import denormalize, evaluation_transforms
 
 OVERLAY_ALPHA = 0.4
@@ -67,16 +67,16 @@ def overlay_heatmap(
     return np.clip((1 - alpha) * image + alpha * colored, 0.0, 1.0)
 
 
-def model_input(path: Path) -> torch.Tensor:
-    return evaluation_transforms()(load_rgb_image(path))
+def model_input(path: Path, load_image: ImageLoader = load_rgb_image) -> torch.Tensor:
+    return evaluation_transforms()(load_image(path))
 
 
 def to_display_image(tensor: torch.Tensor) -> np.ndarray:
     return denormalize(tensor).permute(1, 2, 0).numpy()
 
 
-def load_model_view(path: Path) -> np.ndarray:
-    return to_display_image(model_input(path))
+def load_model_view(path: Path, load_image: ImageLoader = load_rgb_image) -> np.ndarray:
+    return to_display_image(model_input(path, load_image))
 
 
 def explain_image(

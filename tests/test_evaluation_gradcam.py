@@ -5,6 +5,7 @@ import pytest
 
 torch = pytest.importorskip("torch")
 
+from PIL import Image
 from torch import nn
 
 from wastevision.config import IMAGE_SIZE
@@ -166,3 +167,13 @@ def test_explain_image_returns_the_image_and_its_overlay(tiny_dataset: tuple[Pat
     assert overlay.shape == image.shape
     assert overlay.min() >= 0.0
     assert overlay.max() <= 1.0
+
+
+def test_load_model_view_uses_the_given_image_loader(tmp_path: Path):
+    def load_white_image(path: Path) -> Image.Image:
+        return Image.new("RGB", (300, 260), (255, 255, 255))
+
+    image = load_model_view(tmp_path / "not-read.jpg", load_white_image)
+
+    assert image.shape == (IMAGE_SIZE, IMAGE_SIZE, 3)
+    assert image.min() == pytest.approx(1.0, abs=1e-6)
