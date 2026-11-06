@@ -257,7 +257,7 @@ def test_train_head_uses_the_stage_defaults(monkeypatch: pytest.MonkeyPatch):
     assert options["epochs"] == 8
     assert options["use_class_weights"] is True
     assert options["augmentation"] == "standard"
-    assert options["label_smoothing"] == 0.0
+    assert options["label_smoothing"] == 0.1
     assert "epoch   1" in result.stdout
     assert "Best epoch 1: val accuracy 0.8000, val macro-F1 0.7500" in result.stdout
     assert "Stopped early" not in result.stdout
@@ -284,7 +284,7 @@ def test_train_full_passes_its_options(monkeypatch: pytest.MonkeyPatch, tmp_path
             "--augmentation",
             "strong",
             "--label-smoothing",
-            "0.1",
+            "0.0",
             "--head-checkpoint",
             str(tmp_path / "head.pt"),
             "--run-dir",
@@ -299,7 +299,7 @@ def test_train_full_passes_its_options(monkeypatch: pytest.MonkeyPatch, tmp_path
     assert options["epochs"] == 25
     assert options["use_class_weights"] is False
     assert options["augmentation"] == "strong"
-    assert options["label_smoothing"] == 0.1
+    assert options["label_smoothing"] == 0.0
     assert "Stopped early after 6 epochs" in result.stdout
 
 

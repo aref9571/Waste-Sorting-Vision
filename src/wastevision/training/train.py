@@ -29,6 +29,7 @@ HEAD_LEARNING_RATE = 1e-3
 FULL_EPOCHS = 25
 BACKBONE_LEARNING_RATE = 1e-4
 PATIENCE = 4
+LABEL_SMOOTHING = 0.1
 BATCH_SIZE = 32
 SEED = 42
 
@@ -78,7 +79,7 @@ def train_head(
     seed: int = SEED,
     use_class_weights: bool = True,
     augmentation: Augmentation = Augmentation.STANDARD,
-    label_smoothing: float = 0.0,
+    label_smoothing: float = LABEL_SMOOTHING,
     pretrained: bool = True,
     settings: Settings | None = None,
     report: EpochReport | None = None,
@@ -116,7 +117,7 @@ def train_full(
     seed: int = SEED,
     use_class_weights: bool = True,
     augmentation: Augmentation = Augmentation.STANDARD,
-    label_smoothing: float = 0.0,
+    label_smoothing: float = LABEL_SMOOTHING,
     settings: Settings | None = None,
     report: EpochReport | None = None,
 ) -> FitResult:

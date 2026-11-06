@@ -130,7 +130,7 @@ def test_train_full_starts_from_the_head_with_two_learning_rates(
     assert captured["epochs"] == 10
     assert captured["patience"] == 4
     assert captured["class_weights"].tolist() == pytest.approx([1.0] * 6)
-    assert captured["label_smoothing"] == 0.0
+    assert captured["label_smoothing"] == 0.1
     assert v2.RandAugment not in captured["train_steps"]
 
 
@@ -144,14 +144,14 @@ def test_training_stages_pass_augmentation_and_label_smoothing(
 ):
     images_dir, split_path = tiny_dataset
     captured = capture_fit_arguments(monkeypatch)
-    options = {"augmentation": Augmentation.STRONG, "label_smoothing": 0.1}
+    options = {"augmentation": Augmentation.STRONG, "label_smoothing": 0.2}
 
     if stage == "head":
         train_head(images_dir, split_path, tmp_path / "run", pretrained=False, **options)
     else:
         train_full(images_dir, split_path, head_checkpoint, tmp_path / "run", **options)
 
-    assert captured["label_smoothing"] == 0.1
+    assert captured["label_smoothing"] == 0.2
     assert v2.RandAugment in captured["train_steps"]
 
 

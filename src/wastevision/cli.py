@@ -252,7 +252,7 @@ def train(
     label_smoothing: Annotated[
         float,
         typer.Option(min=0.0, help="Label smoothing of the loss, below 1."),
-    ] = 0.0,
+    ] = 0.1,
     images_dir: Annotated[
         Path, typer.Option(help="Folder with one subfolder of images per class.")
     ] = DEFAULT_IMAGES_DIR,
