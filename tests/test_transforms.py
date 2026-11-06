@@ -3,8 +3,9 @@ import pytest
 torch = pytest.importorskip("torch")
 
 from PIL import Image
+from torchvision.transforms import v2
 
-from wastevision.config import IMAGE_SIZE, IMAGENET_MEAN, IMAGENET_STD
+from wastevision.config import IMAGE_SIZE, IMAGENET_MEAN, IMAGENET_STD, Augmentation
 from wastevision.data.transforms import (
     denormalize,
     evaluation_transforms,
@@ -26,8 +27,14 @@ def mean_color_image(size: tuple[int, int] = (512, 384)) -> Image.Image:
     return Image.new("RGB", size, color)
 
 
+def strong_training_transforms() -> v2.Compose:
+    return training_transforms(Augmentation.STRONG)
+
+
 @pytest.mark.parametrize("size", IMAGE_SIZES)
-@pytest.mark.parametrize("transform_factory", [training_transforms, evaluation_transforms])
+@pytest.mark.parametrize(
+    "transform_factory", [training_transforms, strong_training_transforms, evaluation_transforms]
+)
 def test_transforms_return_normalized_float_tensor(size, transform_factory):
     tensor = transform_factory()(noise_image(seed=1, size=size))
 
@@ -80,6 +87,35 @@ def test_training_transform_is_reproducible_with_a_seed():
     torch.manual_seed(7)
     first = transform(image)
     torch.manual_seed(7)
+    second = transform(image)
+
+    assert torch.equal(first, second)
+
+
+def transform_types(transform: v2.Compose) -> list[type]:
+    return [type(step) for step in transform.transforms]
+
+
+def test_standard_training_transform_has_no_rand_augment():
+    assert v2.RandAugment not in transform_types(training_transforms())
+
+
+def test_strong_training_transform_adds_rand_augment_before_normalising():
+    standard = transform_types(training_transforms())
+    strong = transform_types(strong_training_transforms())
+
+    assert strong.count(v2.RandAugment) == 1
+    assert strong.index(v2.RandAugment) < strong.index(v2.ToImage)
+    assert [step for step in strong if step is not v2.RandAugment] == standard
+
+
+def test_strong_training_transform_is_reproducible_with_a_seed():
+    image = noise_image(seed=5)
+    transform = strong_training_transforms()
+
+    torch.manual_seed(11)
+    first = transform(image)
+    torch.manual_seed(11)
     second = transform(image)
 
     assert torch.equal(first, second)

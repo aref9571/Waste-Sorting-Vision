@@ -4,7 +4,7 @@ from pathlib import Path
 import torch
 from torch.utils.data import DataLoader
 
-from wastevision.config import Settings
+from wastevision.config import Augmentation, Settings
 from wastevision.data.image_dataset import WasteImageDataset, make_data_loader, split_dataset
 from wastevision.labels import CLASS_NAMES
 from wastevision.training.loop import (
@@ -37,10 +37,15 @@ Loader = DataLoader[tuple[torch.Tensor, int]]
 
 
 def make_loaders(
-    images_dir: Path, split_path: Path, batch_size: int, seed: int, settings: Settings | None
+    images_dir: Path,
+    split_path: Path,
+    batch_size: int,
+    seed: int,
+    settings: Settings | None,
+    augmentation: Augmentation = Augmentation.STANDARD,
 ) -> tuple[Loader, Loader]:
     train_loader = make_data_loader(
-        split_dataset(split_path, images_dir, "train"),
+        split_dataset(split_path, images_dir, "train", augmentation),
         batch_size,
         shuffle=True,
         settings=settings,
@@ -72,6 +77,7 @@ def train_head(
     batch_size: int = BATCH_SIZE,
     seed: int = SEED,
     use_class_weights: bool = True,
+    augmentation: Augmentation = Augmentation.STANDARD,
     pretrained: bool = True,
     settings: Settings | None = None,
     report: EpochReport | None = None,
@@ -80,7 +86,7 @@ def train_head(
     model = build_model(pretrained=pretrained)
     freeze_backbone(model)
     train_loader, validation_loader = make_loaders(
-        images_dir, split_path, batch_size, seed, settings
+        images_dir, split_path, batch_size, seed, settings, augmentation
     )
     optimizer = torch.optim.AdamW(trainable_parameters(model), lr=learning_rate)
     return fit(
@@ -107,6 +113,7 @@ def train_full(
     batch_size: int = BATCH_SIZE,
     seed: int = SEED,
     use_class_weights: bool = True,
+    augmentation: Augmentation = Augmentation.STANDARD,
     settings: Settings | None = None,
     report: EpochReport | None = None,
 ) -> FitResult:
@@ -116,7 +123,7 @@ def train_full(
     model = build_model(pretrained=False)
     load_checkpoint(model, head_checkpoint)
     train_loader, validation_loader = make_loaders(
-        images_dir, split_path, batch_size, seed, settings
+        images_dir, split_path, batch_size, seed, settings, augmentation
     )
     optimizer = torch.optim.AdamW(
         parameter_groups(model, head_learning_rate, backbone_learning_rate)

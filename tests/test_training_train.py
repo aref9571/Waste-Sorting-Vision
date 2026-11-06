@@ -4,6 +4,9 @@ import pytest
 
 torch = pytest.importorskip("torch")
 
+from torchvision.transforms import v2
+
+from wastevision.config import Augmentation
 from wastevision.training.loop import FitResult, load_checkpoint
 from wastevision.training.model import build_model
 from wastevision.training.train import train_full, train_head
@@ -13,7 +16,13 @@ def capture_fit_arguments(monkeypatch: pytest.MonkeyPatch) -> dict:
     captured = {}
 
     def fake_fit(model, train_loader, validation_loader, run_dir, optimizer, epochs, **options):
-        captured.update(model=model, optimizer=optimizer, epochs=epochs, **options)
+        captured.update(
+            model=model,
+            optimizer=optimizer,
+            epochs=epochs,
+            train_steps=[type(step) for step in train_loader.dataset.transform.transforms],
+            **options,
+        )
         return FitResult([], 0, None, run_dir / "best.pt")
 
     monkeypatch.setattr("wastevision.training.train.fit", fake_fit)
@@ -121,6 +130,38 @@ def test_train_full_starts_from_the_head_with_two_learning_rates(
     assert captured["epochs"] == 10
     assert captured["patience"] == 4
     assert captured["class_weights"].tolist() == pytest.approx([1.0] * 6)
+    assert v2.RandAugment not in captured["train_steps"]
+
+
+@pytest.mark.parametrize("stage", ["head", "full"])
+def test_training_stages_pass_the_augmentation(
+    tiny_dataset: tuple[Path, Path],
+    tmp_path: Path,
+    head_checkpoint: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    stage: str,
+):
+    images_dir, split_path = tiny_dataset
+    captured = capture_fit_arguments(monkeypatch)
+
+    if stage == "head":
+        train_head(
+            images_dir,
+            split_path,
+            tmp_path / "run",
+            pretrained=False,
+            augmentation=Augmentation.STRONG,
+        )
+    else:
+        train_full(
+            images_dir,
+            split_path,
+            head_checkpoint,
+            tmp_path / "run",
+            augmentation=Augmentation.STRONG,
+        )
+
+    assert v2.RandAugment in captured["train_steps"]
 
 
 def test_train_full_needs_a_head_checkpoint(tiny_dataset: tuple[Path, Path], tmp_path: Path):

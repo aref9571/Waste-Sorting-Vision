@@ -5,8 +5,9 @@ import pytest
 torch = pytest.importorskip("torch")
 
 from PIL import Image
+from torchvision.transforms import v2
 
-from wastevision.config import IMAGE_SIZE, Settings
+from wastevision.config import IMAGE_SIZE, Augmentation, Settings
 from wastevision.data.dataset import ImageRecord, SplitFileError
 from wastevision.data.image_dataset import (
     WasteImageDataset,
@@ -70,6 +71,16 @@ def test_split_dataset_augments_only_training_images(tiny_dataset: tuple[Path, P
 
     assert not torch.equal(train[0][0], train[0][0])
     assert torch.equal(test[0][0], test[0][0])
+
+
+def test_split_dataset_uses_the_augmentation_only_for_training(tiny_dataset: tuple[Path, Path]):
+    images_dir, split_path = tiny_dataset
+
+    train = split_dataset(split_path, images_dir, "train", Augmentation.STRONG)
+    validation = split_dataset(split_path, images_dir, "validation", Augmentation.STRONG)
+
+    assert any(isinstance(step, v2.RandAugment) for step in train.transform.transforms)
+    assert not any(isinstance(step, v2.RandAugment) for step in validation.transform.transforms)
 
 
 def test_split_dataset_rejects_unknown_split(tiny_dataset: tuple[Path, Path]):

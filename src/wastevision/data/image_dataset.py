@@ -5,7 +5,7 @@ import torch
 from PIL import Image
 from torch.utils.data import DataLoader, Dataset
 
-from wastevision.config import Settings
+from wastevision.config import Augmentation, Settings
 from wastevision.data.dataset import ImageRecord, load_image_records
 from wastevision.data.transforms import evaluation_transforms, training_transforms
 from wastevision.labels import CLASS_NAMES
@@ -39,9 +39,14 @@ class WasteImageDataset(Dataset[tuple[torch.Tensor, int]]):
         return self.transform(image), CLASS_NAMES.index(record.class_name)
 
 
-def split_dataset(split_path: Path, images_dir: Path, split: str) -> WasteImageDataset:
+def split_dataset(
+    split_path: Path,
+    images_dir: Path,
+    split: str,
+    augmentation: Augmentation = Augmentation.STANDARD,
+) -> WasteImageDataset:
     records = load_image_records(split_path, images_dir, split)
-    transform = training_transforms() if split == "train" else evaluation_transforms()
+    transform = training_transforms(augmentation) if split == "train" else evaluation_transforms()
     return WasteImageDataset(records, transform)
 
 

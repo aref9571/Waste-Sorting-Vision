@@ -4,7 +4,13 @@ import torch
 from PIL import Image
 from torchvision.transforms import v2
 
-from wastevision.config import IMAGE_SIZE, IMAGENET_MEAN, IMAGENET_STD, RESIZE_SIZE
+from wastevision.config import (
+    IMAGE_SIZE,
+    IMAGENET_MEAN,
+    IMAGENET_STD,
+    RESIZE_SIZE,
+    Augmentation,
+)
 
 CROP_SCALE: tuple[float, float] = (0.7, 1.0)
 ROTATION_DEGREES = 10
@@ -22,7 +28,8 @@ def to_normalized_tensor() -> list[v2.Transform]:
     ]
 
 
-def training_transforms() -> v2.Compose:
+def training_transforms(augmentation: Augmentation = Augmentation.STANDARD) -> v2.Compose:
+    extra = [v2.RandAugment()] if augmentation is Augmentation.STRONG else []
     return v2.Compose(
         [
             v2.RandomResizedCrop(IMAGE_SIZE, scale=CROP_SCALE, antialias=True),
@@ -31,6 +38,7 @@ def training_transforms() -> v2.Compose:
             v2.ColorJitter(
                 brightness=BRIGHTNESS, contrast=CONTRAST, saturation=SATURATION, hue=HUE
             ),
+            *extra,
             *to_normalized_tensor(),
         ]
     )

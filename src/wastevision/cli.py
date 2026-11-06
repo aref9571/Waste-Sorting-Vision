@@ -6,6 +6,7 @@ import numpy as np
 import typer
 
 from wastevision import __version__
+from wastevision.config import Augmentation
 from wastevision.data.dataset import SplitFileError, load_image_records
 from wastevision.data.download import (
     DEFAULT_RAW_DIR,
@@ -244,6 +245,10 @@ def train(
     class_weights: Annotated[
         bool, typer.Option(help="Weight the loss by inverse class frequency.")
     ] = True,
+    augmentation: Annotated[
+        Augmentation,
+        typer.Option(help="standard: crop, flip, rotation, colour; strong: adds RandAugment."),
+    ] = Augmentation.STANDARD,
     images_dir: Annotated[
         Path, typer.Option(help="Folder with one subfolder of images per class.")
     ] = DEFAULT_IMAGES_DIR,
@@ -268,6 +273,7 @@ def train(
                 run_dir,
                 epochs=max_epochs,
                 use_class_weights=class_weights,
+                augmentation=augmentation,
                 report=echo_epoch,
             )
         else:
@@ -278,6 +284,7 @@ def train(
                 run_dir,
                 epochs=max_epochs,
                 use_class_weights=class_weights,
+                augmentation=augmentation,
                 report=echo_epoch,
             )
     except (SplitFileError, ValueError, OSError) as error:

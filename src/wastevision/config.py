@@ -1,3 +1,5 @@
+from enum import StrEnum
+
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -5,6 +7,11 @@ IMAGE_SIZE = 224
 RESIZE_SIZE = 256
 IMAGENET_MEAN: tuple[float, float, float] = (0.485, 0.456, 0.406)
 IMAGENET_STD: tuple[float, float, float] = (0.229, 0.224, 0.225)
+
+
+class Augmentation(StrEnum):
+    STANDARD = "standard"
+    STRONG = "strong"
 
 
 class Settings(BaseSettings):
