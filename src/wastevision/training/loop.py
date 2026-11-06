@@ -175,6 +175,7 @@ def fit(
     optimizer: torch.optim.Optimizer,
     epochs: int,
     class_weights: torch.Tensor | None = None,
+    label_smoothing: float = 0.0,
     scheduler: torch.optim.lr_scheduler.LRScheduler | None = None,
     patience: int | None = None,
     report: Callable[[EpochRecord], None] | None = None,
@@ -183,12 +184,14 @@ def fit(
         raise ValueError("epochs must be at least 1")
     if patience is not None and patience < 1:
         raise ValueError("patience must be at least 1")
+    if not 0.0 <= label_smoothing < 1.0:
+        raise ValueError("label_smoothing must be at least 0 and below 1")
     metrics_path = run_dir / METRICS_FILE_NAME
     if metrics_path.exists():
         raise FileExistsError(f"Run folder {run_dir} already has {METRICS_FILE_NAME}")
     run_dir.mkdir(parents=True, exist_ok=True)
 
-    criterion = nn.CrossEntropyLoss(weight=class_weights)
+    criterion = nn.CrossEntropyLoss(weight=class_weights, label_smoothing=label_smoothing)
     checkpoint_path = run_dir / CHECKPOINT_FILE_NAME
     history: list[EpochRecord] = []
     best_macro_f1 = -1.0

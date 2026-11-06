@@ -78,6 +78,7 @@ def train_head(
     seed: int = SEED,
     use_class_weights: bool = True,
     augmentation: Augmentation = Augmentation.STANDARD,
+    label_smoothing: float = 0.0,
     pretrained: bool = True,
     settings: Settings | None = None,
     report: EpochReport | None = None,
@@ -97,6 +98,7 @@ def train_head(
         optimizer,
         epochs,
         class_weights=loss_weights(train_loader.dataset, use_class_weights),
+        label_smoothing=label_smoothing,
         report=report,
     )
 
@@ -114,6 +116,7 @@ def train_full(
     seed: int = SEED,
     use_class_weights: bool = True,
     augmentation: Augmentation = Augmentation.STANDARD,
+    label_smoothing: float = 0.0,
     settings: Settings | None = None,
     report: EpochReport | None = None,
 ) -> FitResult:
@@ -137,6 +140,7 @@ def train_full(
         optimizer,
         epochs,
         class_weights=loss_weights(train_loader.dataset, use_class_weights),
+        label_smoothing=label_smoothing,
         scheduler=scheduler,
         patience=patience,
         report=report,

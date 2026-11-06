@@ -249,6 +249,10 @@ def train(
         Augmentation,
         typer.Option(help="standard: crop, flip, rotation, colour; strong: adds RandAugment."),
     ] = Augmentation.STANDARD,
+    label_smoothing: Annotated[
+        float,
+        typer.Option(min=0.0, help="Label smoothing of the loss, below 1."),
+    ] = 0.0,
     images_dir: Annotated[
         Path, typer.Option(help="Folder with one subfolder of images per class.")
     ] = DEFAULT_IMAGES_DIR,
@@ -260,6 +264,8 @@ def train(
         Path, typer.Option(help="Head checkpoint that the full stage starts from.")
     ] = DEFAULT_HEAD_CHECKPOINT,
 ) -> None:
+    if label_smoothing >= 1.0:
+        raise typer.BadParameter("must be below 1", param_hint="'--label-smoothing'")
     from wastevision.training.train import FULL_EPOCHS, HEAD_EPOCHS, train_full, train_head
 
     run_dir = run_dir or Path("runs") / stage.value
@@ -274,6 +280,7 @@ def train(
                 epochs=max_epochs,
                 use_class_weights=class_weights,
                 augmentation=augmentation,
+                label_smoothing=label_smoothing,
                 report=echo_epoch,
             )
         else:
@@ -285,6 +292,7 @@ def train(
                 epochs=max_epochs,
                 use_class_weights=class_weights,
                 augmentation=augmentation,
+                label_smoothing=label_smoothing,
                 report=echo_epoch,
             )
     except (SplitFileError, ValueError, OSError) as error:

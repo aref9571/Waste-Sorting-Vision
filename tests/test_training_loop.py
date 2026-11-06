@@ -213,6 +213,50 @@ def test_fit_with_class_weights(tmp_path: Path):
     assert result.best_epoch == 1
 
 
+def confident_linear_model() -> nn.Module:
+    model = nn.Sequential(nn.Flatten(), nn.Linear(3 * IMAGE_SIZE * IMAGE_SIZE, len(CLASS_NAMES)))
+    with torch.no_grad():
+        model[1].weight.mul_(100.0)
+    return model
+
+
+def test_fit_passes_label_smoothing_to_the_loss(tmp_path: Path):
+    losses = []
+    for name, label_smoothing in (("plain", 0.0), ("smoothed", 0.5)):
+        set_seed(0)
+        model = confident_linear_model()
+        result = fit(
+            model,
+            random_loader(1),
+            random_loader(2),
+            tmp_path / name,
+            adamw(model, 0.0),
+            1,
+            label_smoothing=label_smoothing,
+        )
+        losses.append(result.history[0].validation.loss)
+
+    plain, smoothed = losses
+    assert smoothed != pytest.approx(plain)
+
+
+@pytest.mark.parametrize("label_smoothing", [-0.1, 1.0])
+def test_fit_rejects_invalid_label_smoothing(tmp_path: Path, label_smoothing: float):
+    model = build_model(pretrained=False)
+
+    with pytest.raises(ValueError, match="label_smoothing"):
+        fit(
+            model,
+            random_loader(1),
+            random_loader(2),
+            tmp_path,
+            adamw(model),
+            1,
+            label_smoothing=label_smoothing,
+        )
+    assert not (tmp_path / METRICS_FILE_NAME).exists()
+
+
 def test_fit_is_reproducible_with_the_same_seed(tmp_path: Path):
     results = []
     for name in ("first", "second"):
