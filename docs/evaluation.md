@@ -74,7 +74,7 @@ Measured on 2026-10-23 on a 4-core Intel Xeon CPU at 2.10 GHz with Python 3.12.3
 
 ## Neural network
 
-The network is MobileNetV3-Small, pretrained on ImageNet (`IMAGENET1K_V1` weights from torchvision), with its last layer replaced by a new layer with one output per class. It is trained in two stages on the train split, and every choice below was made on the validation split only. The final model was then evaluated once on the test split ([Test result](#test-result-1)).
+The network is MobileNetV3-Small, pretrained on ImageNet (`IMAGENET1K_V1` weights from torchvision), with its last layer replaced by a new layer with one output per class. It is trained in two stages on the train split, and every choice below was made on the validation split only. This model (version 1) was then evaluated once on the test split ([Test result](#test-result-1)). The sections up to the real-world check describe version 1. The final model is version 2, trained with label smoothing ([Model versions](#model-versions)).
 
 ### Training settings
 
@@ -117,7 +117,7 @@ wastevision train --stage full
 wastevision curves --run runs/head --run runs/full
 ```
 
-`train` prints one line per epoch and writes `metrics.csv` and the best checkpoint `best.pt` to `runs/head` or `runs/full` (not committed). `--no-class-weights`, `--epochs` and `--run-dir` change the settings. The comparison above used `--run-dir` to keep the four runs apart. Measured on 2026-10-27 on a 4-core Intel Xeon CPU at 2.10 GHz with PyTorch 2.14.1: stage 1 takes about 3 minutes, stage 2 about 13 minutes (about 38 seconds per epoch).
+`train` prints one line per epoch and writes `metrics.csv` and the best checkpoint `best.pt` to `runs/head` or `runs/full` (not committed). `--no-class-weights`, `--epochs` and `--run-dir` change the settings. These sections describe version 1. Since the [model comparison](#model-versions), `train` uses label smoothing by default; add `--label-smoothing 0` to both commands to train version 1. The comparison above used `--run-dir` to keep the four runs apart. Measured on 2026-10-27 on a 4-core Intel Xeon CPU at 2.10 GHz with PyTorch 2.14.1: stage 1 takes about 3 minutes, stage 2 about 13 minutes (about 38 seconds per epoch).
 
 ### Test result
 
@@ -332,3 +332,73 @@ wastevision evaluate-real
 ```
 
 `evaluate-real` reads every photo in `data/real/<class>/` (the folder name is the label), prints the number of photos per class, the metrics, the confusion matrix, the mean confidence and one line per photo, and writes [img/real-confusion-matrix.png](img/real-confusion-matrix.png). It accepts JPEG, PNG and WebP files. On loading, each photo is turned upright according to its EXIF orientation and rebuilt from its pixels only, so EXIF data such as a GPS location never reaches the model or a saved figure. `--examples-output` also writes one example prediction per class as a figure. It was not used here, because the RealWaste licence does not allow the photos to be redistributed under this repository's terms. The same command works for any folder of labelled photos, for example your own. Measured on 2026-11-05 on the same CPU: about 2.5 minutes for 3,587 photos.
+
+## Model versions
+
+The error analysis and the real-world check pointed to two weaknesses: the model is too confident, and it depends on the look of TrashNet photos. Two changes were tried, each on its own, against version 1 (the model in the sections above). The rule was fixed before training: a change is kept only if its best stage 2 validation macro-F1 is higher than version 1's (0.919). The test split and the RealWaste photos were not used for this choice.
+
+- **Stronger augmentation:** RandAugment (torchvision defaults: two random operations per image, magnitude 9 of 31, chosen from changes such as brightness, contrast, colour, sharpness, posterize, solarize, equalize, rotation, shear and translation) added after the existing crop, flip, rotation and colour jitter (`--augmentation strong`).
+- **Label smoothing 0.1:** the training target is no longer 1 for the true class and 0 for the others. With six classes, the true class gets 0.9 + 0.1 / 6 ≈ 0.917 and every other class 0.1 / 6 ≈ 0.017 (`--label-smoothing 0.1`). This penalises the network for pushing a probability all the way to 1.
+
+Both changes were used in both stages, with every other setting unchanged (class weights, learning rates, schedule, early stopping, seed 42). As a check of the code, stage 1 of version 1 was trained again with the new code and gave exactly the same validation results as before (accuracy 0.8730, macro-F1 0.8493).
+
+| Training | Stage 1 val macro-F1 | Stage 2 best epoch | Stage 2 val accuracy | Stage 2 val macro-F1 |
+|---|---|---|---|---|
+| Version 1 (no change) | 0.8493 | 17 of 21 | 0.9259 | 0.9189 |
+| Stronger augmentation (RandAugment) | 0.8463 | 13 of 17 | 0.9101 | 0.9072 |
+| **Label smoothing 0.1** | 0.8797 | 13 of 17 | **0.9286** | **0.9281** |
+
+RandAugment made validation worse and was dropped. A likely reason is that its colour operations (solarize, posterize, strong colour changes) remove colour cues that matter in TrashNet, such as the brown of cardboard, while it does not change the white background at all. Label smoothing was better and became the default: **version 2**. The gain on validation is small. Accuracy differs by one image out of 378, and macro-F1 by 0.009, mostly from trash, which has only 21 validation images. It is a weak preference, like the class-weight choice. A combination of both changes was not trained, because RandAugment on its own did not help.
+
+### Version 2 on the test split and on RealWaste
+
+Version 2 was evaluated once on the test split and once on the RealWaste photos. **The test split has now been used twice**: once for version 1 and once for version 2. Both results are reported, and nothing will be chosen from them. A second look at the test split still makes its result slightly less independent, because the change was kept knowing that version 1 had a weak trash class on test.
+
+| | Version 1 | Version 2 (label smoothing) |
+|---|---|---|
+| Validation accuracy / macro-F1 | 0.926 / 0.919 | 0.929 / 0.928 |
+| Test accuracy | 0.868 | 0.892 |
+| Test macro-F1 | 0.819 | **0.867** |
+| Test expected calibration error | 0.069 | 0.147 |
+| RealWaste accuracy | 0.484 | 0.432 |
+| RealWaste macro-F1 | 0.456 | 0.426 |
+| RealWaste mean confidence | 0.837 | 0.540 |
+| RealWaste expected calibration error | 0.353 | 0.108 |
+
+| Class | Test F1, version 1 | Test F1, version 2 | Test images | RealWaste F1, version 1 | RealWaste F1, version 2 |
+|---|---|---|---|---|---|
+| cardboard | 0.937 | 0.984 | 60 | 0.363 | 0.326 |
+| glass | 0.883 | 0.873 | 75 | 0.361 | 0.351 |
+| metal | 0.891 | 0.915 | 61 | 0.605 | 0.563 |
+| paper | 0.893 | 0.906 | 89 | 0.542 | 0.532 |
+| plastic | 0.859 | 0.884 | 72 | 0.528 | 0.468 |
+| trash | 0.450 | 0.640 | 21 | 0.340 | 0.313 |
+
+![Confusion matrix of version 2 on the test split](img/confusion-matrix-label-smoothing.png)
+
+![Reliability diagram of version 2 on the test split](img/reliability-diagram-label-smoothing.png)
+
+![Confusion matrix of version 2 on the RealWaste photos](img/real-confusion-matrix-label-smoothing.png)
+
+On the test split, version 2 is better: 9 more images correct (337 instead of 328 of 378), and trash F1 rises from 0.450 to 0.640 (16 of the 21 trash images are found instead of 9). Paper predicted as trash is still the most frequent mistake (10 images).
+
+The confidence changed more than the accuracy. Version 1 was overconfident; version 2 is underconfident on the test split: in every bin, the accuracy is above the mean confidence (all 101 predictions above 0.9 are correct, but their mean confidence is only 0.934). That is the expected effect of label smoothing, which never asks the network for a probability above about 0.92. Its expected calibration error is therefore higher (0.147 against 0.069), but in the safe direction for an "unsure" answer: a low confidence now means "possibly wrong" more often than it means "wrong". The threshold is chosen on validation for whichever model is final, so it adapts to this.
+
+On RealWaste, version 2 is less accurate (0.432 against 0.484). It now predicts trash much more often (1,243 of 3,587 photos), and many dirty or crushed items of every material end up there. Its confidence, however, is much closer to its accuracy: mean confidence 0.540 for an accuracy of 0.432, and an expected calibration error of 0.108 instead of 0.353. Only 112 RealWaste photos get a confidence of 0.9 or more (75% of them correct), against 1,923 for version 1 (61.6% correct). For a service that answers "unsure" when it is not confident, version 2 would refuse many of the real-world photos that version 1 answered wrongly with high confidence.
+
+Version 2 is the final model, because the choice was made on validation as planned. Neither change solves the domain shift: both versions lose about half their accuracy on RealWaste. That needs training images with varied backgrounds and item conditions, which TrashNet does not have.
+
+### Reproduce the model comparison
+
+```bash
+wastevision train --stage head --augmentation strong --label-smoothing 0 --run-dir runs/head-strong
+wastevision train --stage full --augmentation strong --label-smoothing 0 \
+    --head-checkpoint runs/head-strong/best.pt --run-dir runs/full-strong
+wastevision train --stage head
+wastevision train --stage full
+wastevision evaluate --confusion-output docs/img/confusion-matrix-label-smoothing.png \
+    --reliability-output docs/img/reliability-diagram-label-smoothing.png
+wastevision evaluate-real --confusion-output docs/img/real-confusion-matrix-label-smoothing.png
+```
+
+Since version 2, `train` uses label smoothing 0.1 by default, so `wastevision train --stage head` and `--stage full` produce version 2 in `runs/head` and `runs/full`. Add `--label-smoothing 0` to both commands to train version 1 again. The comparison runs were made with the code of the commit that added the label-smoothing option, with `--label-smoothing 0.1` written out and `--run-dir runs/head-smooth` and `runs/full-smooth`. Training version 2 again with the new defaults gave identical numbers in every epoch and a byte-identical checkpoint. Measured on 2026-11-06 on a 4-core Intel Xeon CPU at 2.10 GHz with PyTorch 2.14.1: stage 1 takes about 2 minutes and stage 2 about 7 minutes for each variant, `evaluate` about 5 seconds and `evaluate-real` about 25 seconds.
