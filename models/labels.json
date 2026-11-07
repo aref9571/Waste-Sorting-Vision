@@ -1,0 +1,32 @@
+[
+  {
+    "index": 0,
+    "class": "cardboard",
+    "category": "Cardboard"
+  },
+  {
+    "index": 1,
+    "class": "glass",
+    "category": "Glass"
+  },
+  {
+    "index": 2,
+    "class": "metal",
+    "category": "Metal and cans"
+  },
+  {
+    "index": 3,
+    "class": "paper",
+    "category": "Paper"
+  },
+  {
+    "index": 4,
+    "class": "plastic",
+    "category": "Plastic"
+  },
+  {
+    "index": 5,
+    "class": "trash",
+    "category": "Other waste"
+  }
+]
