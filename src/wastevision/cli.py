@@ -61,6 +61,7 @@ DEFAULT_RELIABILITY_PATH = Path("docs/img/reliability-diagram.png")
 DEFAULT_MISTAKES_PATH = Path("docs/img/misclassified.png")
 DEFAULT_GRADCAM_PATH = Path("docs/img/gradcam.png")
 DEFAULT_REAL_CONFUSION_PATH = Path("docs/img/real-confusion-matrix.png")
+DEFAULT_MODELS_DIR = Path("models")
 GRID_COLUMNS = 4
 MIN_PHOTOS_PER_CLASS = 10
 
@@ -618,3 +619,40 @@ def evaluate_real(
         GRID_COLUMNS,
     )
     typer.echo(f"Wrote {len(examples)} example predictions to {examples_output}")
+
+
+@app.command("export")
+def export(
+    checkpoint: Annotated[
+        Path, typer.Option(help="Trained network checkpoint to export.")
+    ] = DEFAULT_FULL_CHECKPOINT,
+    images_dir: Annotated[
+        Path, typer.Option(help="Folder with one subfolder of images per class.")
+    ] = DEFAULT_IMAGES_DIR,
+    split_path: Annotated[Path, typer.Option("--split", help="Split CSV.")] = DEFAULT_SPLIT_PATH,
+    models_dir: Annotated[
+        Path, typer.Option(help="Folder for the ONNX model, labels.json and metadata.json.")
+    ] = DEFAULT_MODELS_DIR,
+) -> None:
+    from wastevision.training.export import ParityError, export_model
+
+    try:
+        result = export_model(checkpoint, images_dir, split_path, models_dir)
+    except (ParityError, SplitFileError, ValueError, OSError) as error:
+        typer.echo(f"Error: {error}", err=True)
+        raise typer.Exit(code=1) from error
+
+    parity = result.parity
+    test = result.metadata["metrics"]["test"]
+    typer.echo(
+        f"Parity on {parity.images} test images: max logit difference"
+        f" {parity.max_abs_difference:.2e}, top-1 equal for {parity.top1_matches}"
+    )
+    typer.echo(
+        f"Test split ({test['images']} images): accuracy {test['accuracy']:.4f},"
+        f" macro-F1 {test['macro_f1']:.4f}"
+    )
+    size_mb = result.model_path.stat().st_size / 1_000_000
+    typer.echo(f"Wrote {result.model_path} ({size_mb:.1f} MB)")
+    typer.echo(f"Wrote {result.labels_path}")
+    typer.echo(f"Wrote {result.metadata_path}")

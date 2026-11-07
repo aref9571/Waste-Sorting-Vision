@@ -747,3 +747,60 @@ def test_echo_photo_counts_warns_only_for_small_classes(capsys: pytest.CaptureFi
     assert "  glass: 10" in output
     assert "Warning: glass" not in output
     assert "Warning: trash has fewer than 10 photos" in output
+
+
+def export_arguments(
+    images_dir: Path, split_path: Path, checkpoint: Path, models_dir: Path
+) -> list[str]:
+    return [
+        "export",
+        "--checkpoint",
+        str(checkpoint),
+        "--images-dir",
+        str(images_dir),
+        "--split",
+        str(split_path),
+        "--models-dir",
+        str(models_dir),
+    ]
+
+
+def test_export_prints_parity_and_writes_the_model_files(
+    tiny_dataset: tuple[Path, Path], tmp_path: Path
+):
+    torch = pytest.importorskip("torch")
+    pytest.importorskip("onnxscript")
+    from wastevision.training.loop import EpochMetrics, save_checkpoint
+    from wastevision.training.model import build_model
+
+    images_dir, split_path = tiny_dataset
+    checkpoint = tmp_path / "best.pt"
+    torch.manual_seed(0)
+    save_checkpoint(build_model(pretrained=False), checkpoint, 1, EpochMetrics(1.0, 0.5, 0.5))
+    models_dir = tmp_path / "models"
+
+    result = runner.invoke(app, export_arguments(images_dir, split_path, checkpoint, models_dir))
+
+    assert result.exit_code == 0, result.output
+    assert f"Parity on {len(CLASS_NAMES)} test images" in result.stdout
+    assert f"top-1 equal for {len(CLASS_NAMES)}" in result.stdout
+    assert f"Test split ({len(CLASS_NAMES)} images)" in result.stdout
+    assert sorted(path.name for path in models_dir.iterdir()) == [
+        "labels.json",
+        "metadata.json",
+        "waste-mobilenetv3.onnx",
+    ]
+
+
+def test_export_reports_a_missing_checkpoint(tiny_dataset: tuple[Path, Path], tmp_path: Path):
+    pytest.importorskip("torch")
+    pytest.importorskip("onnxscript")
+    images_dir, split_path = tiny_dataset
+
+    result = runner.invoke(
+        app,
+        export_arguments(images_dir, split_path, tmp_path / "missing.pt", tmp_path / "models"),
+    )
+
+    assert result.exit_code == 1
+    assert "does not exist" in result.output
