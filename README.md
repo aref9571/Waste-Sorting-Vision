@@ -16,6 +16,7 @@ In development.
 | Error analysis with Grad-CAM explanations | Done |
 | Robustness checks and a test on real-world photos (RealWaste) | Done |
 | Comparison of two improvements on the validation split; label smoothing kept | Done |
+| ONNX export of the final model with a parity check against PyTorch | Done |
 | FastAPI service, web page and Docker image | Planned |
 
 ## Development setup
@@ -116,3 +117,21 @@ wastevision evaluate-real
 The changed test images cost at most about 2 points of accuracy. On the 3,587 RealWaste photos of the six matching classes, accuracy falls to 0.484 and macro-F1 to 0.456, while the model stays confident (mean confidence 0.837). The test split overstates real-world accuracy; see [docs/evaluation.md](docs/evaluation.md#real-world-photos-and-robustness).
 
 The numbers above are for version 1 of the model. Two improvements were then compared on the validation split: stronger augmentation (RandAugment) made it worse, label smoothing 0.1 made it slightly better and is now the default of `wastevision train` (version 2). Version 2 reaches a test accuracy of 0.892 and a macro-F1 of 0.867, with trash F1 rising from 0.450 to 0.640. On RealWaste it is less accurate (0.432) but far less overconfident (mean confidence 0.540, calibration error 0.108 instead of 0.353). The test split has been used twice, once for each version. See [docs/evaluation.md](docs/evaluation.md#model-versions).
+
+## Exported model
+
+The final model (version 2) is committed in ONNX format, so the service can run it with `onnxruntime` and does not need PyTorch:
+
+| File | Content |
+|:--|:--|
+| [models/waste-mobilenetv3.onnx](models/waste-mobilenetv3.onnx) | The network (6.1 MB, ONNX opset 18, any batch size, input `image` of shape N × 3 × 224 × 224, output `logits` with one score per class) |
+| [models/labels.json](models/labels.json) | Class order and the user-facing category of each class |
+| [models/metadata.json](models/metadata.json) | Preprocessing (resize, crop, mean and standard deviation), SHA-256 checksums of the dataset archive, the split, the checkpoint and the ONNX file, validation and test metrics, parity result and export date |
+
+Export it again from a trained checkpoint (needs the `train` extra and the downloaded dataset):
+
+```bash
+wastevision export
+```
+
+The command compares the ONNX model with the PyTorch model on the first 50 test images and stops with an error unless the largest logit difference is below 0.0001 and the predicted class is the same for every image. For the committed model the largest difference is 0.000016 and all 50 predictions are equal.
