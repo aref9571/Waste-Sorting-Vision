@@ -804,3 +804,112 @@ def test_export_reports_a_missing_checkpoint(tiny_dataset: tuple[Path, Path], tm
 
     assert result.exit_code == 1
     assert "does not exist" in result.output
+
+
+def threshold_arguments(
+    images_dir: Path, split_path: Path, checkpoint: Path, models_dir: Path
+) -> list[str]:
+    return [
+        "threshold",
+        "--checkpoint",
+        str(checkpoint),
+        "--images-dir",
+        str(images_dir),
+        "--split",
+        str(split_path),
+        "--models-dir",
+        str(models_dir),
+    ]
+
+
+def fake_split_predictions(monkeypatch: pytest.MonkeyPatch, confident_wrong: bool = False):
+    import numpy as np
+
+    from wastevision.evaluation import predictions as predictions_module
+
+    def predict_split(checkpoint_path, images, split_file, split):
+        labels = np.repeat(np.arange(len(CLASS_NAMES)), 5)
+        probabilities = np.full((len(labels), len(CLASS_NAMES)), 0.02)
+        probabilities[np.arange(len(labels)), labels] = 0.9
+        if confident_wrong:
+            probabilities[0] = 0.02
+            probabilities[0, 1] = 0.9
+        elif split == "validation":
+            for index in (0, 1):
+                probabilities[index] = 0.1
+                probabilities[index, 5] = 0.5
+        return predictions_module.Predictions(labels, probabilities)
+
+    monkeypatch.setattr(predictions_module, "predict_split", predict_split)
+
+
+def test_threshold_prints_the_choice_and_writes_the_metadata(
+    tiny_dataset: tuple[Path, Path], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    pytest.importorskip("torch")
+    import json
+
+    images_dir, split_path = tiny_dataset
+    fake_split_predictions(monkeypatch)
+    models_dir = tmp_path / "models"
+    models_dir.mkdir()
+    (models_dir / "metadata.json").write_text(json.dumps({"opset": 18}), encoding="utf-8")
+
+    result = runner.invoke(
+        app, threshold_arguments(images_dir, split_path, tmp_path / "best.pt", models_dir)
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "Chosen on validation (30 images), target accuracy 0.95" in result.stdout
+    assert "threshold 0.9000" in result.stdout
+    assert "validation: answered 28 of 30" in result.stdout
+    assert "test (measurement only): answered 30 of 30" in result.stdout
+    stored = json.loads((models_dir / "metadata.json").read_text(encoding="utf-8"))
+    assert stored["opset"] == 18
+    assert stored["confidence_threshold"]["threshold"] == 0.9
+    assert stored["confidence_threshold"]["answered"] == 28
+
+
+def test_threshold_reports_an_unreachable_target(
+    tiny_dataset: tuple[Path, Path], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    pytest.importorskip("torch")
+    images_dir, split_path = tiny_dataset
+    fake_split_predictions(monkeypatch, confident_wrong=True)
+    models_dir = tmp_path / "models"
+    models_dir.mkdir()
+    (models_dir / "metadata.json").write_text("{}", encoding="utf-8")
+
+    result = runner.invoke(
+        app,
+        [
+            *threshold_arguments(images_dir, split_path, tmp_path / "best.pt", models_dir),
+            "--target-accuracy",
+            "1.0",
+        ],
+    )
+
+    assert result.exit_code == 1
+    assert "No threshold reaches" in result.stderr
+
+
+def test_threshold_reports_a_missing_checkpoint(tiny_dataset: tuple[Path, Path], tmp_path: Path):
+    pytest.importorskip("torch")
+    images_dir, split_path = tiny_dataset
+    models_dir = tmp_path / "models"
+    models_dir.mkdir()
+    (models_dir / "metadata.json").write_text("{}", encoding="utf-8")
+
+    result = runner.invoke(
+        app, threshold_arguments(images_dir, split_path, tmp_path / "missing.pt", models_dir)
+    )
+
+    assert result.exit_code == 1
+    assert "does not exist" in result.stderr
+
+
+@pytest.mark.parametrize("value", ["0", "1.5", "-1"])
+def test_threshold_rejects_an_invalid_target(value: str):
+    result = runner.invoke(app, ["threshold", "--target-accuracy", value])
+
+    assert result.exit_code == 2

@@ -33,6 +33,7 @@ from wastevision.data.split import (
     create_split,
     write_split_csv,
 )
+from wastevision.evaluation.threshold import DEFAULT_TARGET_ACCURACY
 from wastevision.labels import CLASS_NAMES
 
 if TYPE_CHECKING:
@@ -656,3 +657,55 @@ def export(
     typer.echo(f"Wrote {result.model_path} ({size_mb:.1f} MB)")
     typer.echo(f"Wrote {result.labels_path}")
     typer.echo(f"Wrote {result.metadata_path}")
+
+
+@app.command("threshold")
+def threshold(
+    checkpoint: Annotated[
+        Path, typer.Option(help="Trained network checkpoint to calibrate.")
+    ] = DEFAULT_FULL_CHECKPOINT,
+    images_dir: Annotated[
+        Path, typer.Option(help="Folder with one subfolder of images per class.")
+    ] = DEFAULT_IMAGES_DIR,
+    split_path: Annotated[Path, typer.Option("--split", help="Split CSV.")] = DEFAULT_SPLIT_PATH,
+    models_dir: Annotated[
+        Path, typer.Option(help="Folder with the metadata.json that receives the threshold.")
+    ] = DEFAULT_MODELS_DIR,
+    target_accuracy: Annotated[
+        float, typer.Option(min=0.01, max=1.0, help="Accuracy wanted among answered images.")
+    ] = DEFAULT_TARGET_ACCURACY,
+) -> None:
+    from wastevision.evaluation.predictions import predict_split
+    from wastevision.evaluation.threshold import (
+        ThresholdError,
+        add_threshold_to_metadata,
+        coverage_and_accuracy,
+        select_threshold,
+    )
+
+    metadata_path = models_dir / "metadata.json"
+    try:
+        validation = predict_split(checkpoint, images_dir, split_path, "validation")
+        choice = select_threshold(
+            validation.confidences.tolist(), validation.correct.tolist(), target_accuracy
+        )
+        test = predict_split(checkpoint, images_dir, split_path, "test")
+        add_threshold_to_metadata(metadata_path, choice)
+    except (SplitFileError, ThresholdError, ValueError, OSError) as error:
+        typer.echo(f"Error: {error}", err=True)
+        raise typer.Exit(code=1) from error
+
+    typer.echo(f"Chosen on validation ({choice.images} images), target accuracy {target_accuracy}:")
+    typer.echo(f"  threshold {choice.threshold:.4f}")
+    typer.echo(
+        f"  validation: answered {choice.answered} of {choice.images}"
+        f" (coverage {choice.coverage:.4f}), accuracy {choice.accuracy:.4f}"
+    )
+    answered, coverage, accuracy = coverage_and_accuracy(
+        test.confidences.tolist(), test.correct.tolist(), choice.threshold
+    )
+    typer.echo(
+        f"  test (measurement only): answered {answered} of {len(test.labels)}"
+        f" (coverage {coverage:.4f}), accuracy {accuracy:.4f}"
+    )
+    typer.echo(f"Wrote threshold to {metadata_path}")

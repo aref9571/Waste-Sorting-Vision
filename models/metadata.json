@@ -55,5 +55,13 @@
     "max_abs_difference": 1.5974044799804688e-05,
     "top1_matches": 50
   },
-  "exported_on": "2026-11-07"
+  "exported_on": "2026-11-07",
+  "confidence_threshold": {
+    "threshold": 0.41312333941459656,
+    "target_accuracy": 0.95,
+    "images": 378,
+    "answered": 358,
+    "coverage": 0.9470899470899471,
+    "accuracy": 0.952513966480447
+  }
 }
