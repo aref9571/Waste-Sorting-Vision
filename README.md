@@ -17,6 +17,7 @@ In development.
 | Robustness checks and a test on real-world photos (RealWaste) | Done |
 | Comparison of two improvements on the validation split; label smoothing kept | Done |
 | ONNX export of the final model with a parity check against PyTorch | Done |
+| Image preprocessing without PyTorch, ONNX predictor and "unsure" confidence threshold | Done |
 | FastAPI service, web page and Docker image | Planned |
 
 ## Development setup
@@ -135,3 +136,23 @@ wastevision export
 ```
 
 The command compares the ONNX model with the PyTorch model on the first 50 test images and stops with an error unless the largest logit difference is below 0.0001 and the predicted class is the same for every image. For the committed model the largest difference is 0.000016 and all 50 predictions are equal.
+
+## Predicting with the exported model
+
+The predictor needs only `onnxruntime`, numpy and Pillow:
+
+```python
+from PIL import Image
+
+from wastevision.inference.predictor import Predictor
+
+predictor = Predictor.from_directory()
+prediction = predictor.predict(Image.open("photo.jpg"))
+print(prediction.category, prediction.top, prediction.unsure)
+```
+
+`prediction.top` lists the three most likely classes with their probabilities, `prediction.category` is the sorting category of the most likely class, and `prediction.unsure` is true when the highest probability is below the confidence threshold stored in `models/metadata.json`. The threshold (0.4131) was chosen on the validation split so that at least 95% of the answered validation images are correct; it answers 94.7% of the validation images and 91.3% of the test images, with 95.3% and 93.9% correct. See [docs/evaluation.md](docs/evaluation.md#confidence-threshold-unsure-answer). Choose it again with:
+
+```bash
+wastevision threshold
+```

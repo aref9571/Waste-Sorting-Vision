@@ -402,3 +402,33 @@ wastevision evaluate-real --confusion-output docs/img/real-confusion-matrix-labe
 ```
 
 Since version 2, `train` uses label smoothing 0.1 by default, so `wastevision train --stage head` and `--stage full` produce version 2 in `runs/head` and `runs/full`. Add `--label-smoothing 0` to both commands to train version 1 again. The comparison runs were made with the code of the commit that added the label-smoothing option, with `--label-smoothing 0.1` written out and `--run-dir runs/head-smooth` and `runs/full-smooth`. Training version 2 again with the new defaults gave identical numbers in every epoch and a byte-identical checkpoint. Measured on 2026-11-06 on a 4-core Intel Xeon CPU at 2.10 GHz with PyTorch 2.14.1: stage 1 takes about 2 minutes and stage 2 about 7 minutes for each variant, `evaluate` about 5 seconds and `evaluate-real` about 25 seconds.
+
+## Confidence threshold ("unsure" answer)
+
+The service should not give a confident-looking answer when the model is probably wrong. The predictor therefore answers "unsure" when the highest class probability is below a threshold. The threshold is chosen on the **validation split only**, for the final model (version 2), with a rule written before looking at the numbers: take the lowest threshold for which the images answered on validation (confidence at or above the threshold) are at least 95% correct. The lowest such threshold answers the most images. The target of 95% is the example given in the project plan.
+
+| | Images | Answered | Coverage | Accuracy of the answered images |
+|---|---|---|---|---|
+| Validation (threshold chosen here) | 378 | 358 | 0.947 | 0.953 |
+| Test (measurement only) | 378 | 345 | 0.913 | 0.939 |
+
+The chosen threshold is **0.4131** and is stored in `models/metadata.json` under `confidence_threshold`, together with the validation numbers above. The predictor reads it from there.
+
+How to read this:
+
+- Version 2 is underconfident (see "Model versions"), so the threshold is low. A probability of 0.41 is already a clear answer for this model; with the same rule, version 1 would have needed a much higher value.
+- On the test split the answered images are 93.9% correct, below the 95% target. Choosing the lowest threshold that reaches the target on 378 validation images fits the target to that particular sample, so a small shortfall on new images is expected. The test split was only measured, and the threshold was not changed afterwards. This is the second look at the test split for version 2 (the first is in "Model versions"); no choice was made from either.
+- The threshold controls the confidence on TrashNet-like photos. It cannot fix the domain shift described above: on RealWaste the model is wrong far more often at the same confidence. The threshold was not measured on RealWaste.
+- The threshold is applied to the probabilities from onnxruntime. They differ from the PyTorch ones by about 1e-5 (see the parity check), so an image whose confidence lies exactly on the threshold can be answered by one runtime and refused by the other. This happens: the image that sets the threshold has a confidence of 0.41312334 in PyTorch and is just below it in onnxruntime, so the predictor answers 357 of the 378 validation images, not 358 (the test split gives 345 in both). Over the validation and test images, the largest probability difference between the predictor and PyTorch is 6.8e-06, the predicted class is the same for all 756 images, and the accuracies are identical (0.9286 and 0.8915).
+
+### Preprocessing without PyTorch
+
+The service prepares images with Pillow and numpy only (`wastevision.inference.preprocess`): fix the EXIF orientation, convert to RGB, resize the shorter side to 256 with bilinear resampling, crop the centre 224 × 224 pixels, scale to [0, 1], subtract the mean, divide by the standard deviation, and reorder to channels first. The numbers come from `models/metadata.json`. Compared with the torchvision evaluation transform used in training, the largest difference over 26 TrashNet photos and 7 random images of different sizes was 7.2e-7. A test (needs PyTorch, runs locally) requires a difference below 1e-5, and a test that runs in CI checks hand-computed and stored values.
+
+### Reproduce the threshold
+
+```bash
+wastevision threshold
+```
+
+The command predicts the validation split with the checkpoint (`runs/full/best.pt`, version 2), chooses the threshold, measures the same threshold on the test split, and writes the threshold into `models/metadata.json`. Use `--target-accuracy` for another target. Run on 2026-11-09 on a 4-core CPU with PyTorch 2.15.0.
