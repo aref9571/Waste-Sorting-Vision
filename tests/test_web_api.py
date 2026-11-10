@@ -1,4 +1,7 @@
+import struct
+import zlib
 from collections.abc import Callable, Iterator
+from http import HTTPStatus
 from io import BytesIO
 from pathlib import Path
 
@@ -25,6 +28,31 @@ def encoded_image(image_format: str = "PNG", size: tuple[int, int] = (320, 240))
     buffer = BytesIO()
     Image.fromarray(pixels).save(buffer, format=image_format)
     return buffer.getvalue()
+
+
+def png_header_only(width: int, height: int) -> bytes:
+    def chunk(kind: bytes, payload: bytes) -> bytes:
+        checksum = zlib.crc32(kind + payload)
+        return struct.pack(">I", len(payload)) + kind + payload + struct.pack(">I", checksum)
+
+    header = struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)
+    return (
+        b"\x89PNG\r\n\x1a\n"
+        + chunk(b"IHDR", header)
+        + chunk(b"IDAT", zlib.compress(b"\x00" * 16))
+        + chunk(b"IEND", b"")
+    )
+
+
+def assert_problem(response, status: int) -> dict:
+    body = response.json()
+    assert response.status_code == status
+    assert response.headers["content-type"] == "application/problem+json"
+    assert set(body) == {"type", "title", "status", "detail", "instance"}
+    assert body["type"] == "about:blank"
+    assert body["title"] == HTTPStatus(status).phrase
+    assert body["status"] == status
+    return body
 
 
 def upload(client: TestClient, data: bytes, content_type: str = "image/png", field: str = "image"):
@@ -187,3 +215,153 @@ def test_openapi_documents_the_classify_endpoint(client: TestClient):
 
     assert "post" in paths[CLASSIFY_URL]
     assert {"/health/live", "/health/ready"} <= set(paths)
+
+
+class BrokenPredictor:
+    def predict(self, image: Image.Image):
+        raise RuntimeError("internal failure with SECRET details")
+
+
+def test_upload_over_the_size_limit_is_rejected(make_client: ClientFactory):
+    client = make_client(max_upload_bytes=1000)
+
+    response = upload(client, encoded_image())
+
+    body = assert_problem(response, 413)
+    assert body["detail"] == "The image must not be larger than 1000 bytes."
+    assert body["instance"] == CLASSIFY_URL
+
+
+def test_upload_over_the_default_size_limit_is_rejected(client: TestClient):
+    response = upload(client, b"\x00" * (5 * 1024 * 1024 + 1))
+
+    assert_problem(response, 413)
+
+
+def test_upload_at_the_size_limit_is_accepted(make_client: ClientFactory):
+    data = encoded_image(size=(32, 32))
+    client = make_client(max_upload_bytes=len(data))
+
+    assert upload(client, data).status_code == 200
+
+
+@pytest.mark.parametrize("content_type", ["image/gif", "text/plain", "application/octet-stream"])
+def test_upload_with_a_wrong_content_type_is_rejected(client: TestClient, content_type: str):
+    response = upload(client, encoded_image("GIF"), content_type)
+
+    body = assert_problem(response, 415)
+    assert body["detail"] == "Upload a JPEG, PNG or WebP image."
+
+
+def test_upload_whose_content_does_not_match_its_type_is_rejected(client: TestClient):
+    response = upload(client, encoded_image("PNG"), "image/jpeg")
+
+    assert_problem(response, 415)
+
+
+@pytest.mark.parametrize(
+    "data",
+    [b"SECRET text that is not an image", b"\x89PNG\r\n\x1a\nSECRET" + b"\x00" * 40],
+)
+def test_corrupt_upload_is_rejected_without_echoing_it(client: TestClient, data: bytes):
+    response = upload(client, data)
+
+    body = assert_problem(response, 400)
+    assert body["detail"] == "The file could not be read as an image."
+    assert "SECRET" not in response.text
+
+
+def test_truncated_upload_is_rejected(client: TestClient):
+    response = upload(client, encoded_image("JPEG")[:500], "image/jpeg")
+
+    assert_problem(response, 400)
+
+
+def test_empty_upload_is_rejected(client: TestClient):
+    response = upload(client, b"")
+
+    body = assert_problem(response, 400)
+    assert body["detail"] == "The uploaded file is empty."
+
+
+def test_upload_with_huge_dimensions_is_rejected(client: TestClient):
+    response = upload(client, png_header_only(20_000, 20_000))
+
+    assert_problem(response, 400)
+
+
+@pytest.mark.filterwarnings("ignore::PIL.Image.DecompressionBombWarning")
+def test_upload_over_the_configured_pixel_limit_is_rejected(make_client: ClientFactory):
+    client = make_client(max_image_pixels=10_000)
+
+    response = upload(client, encoded_image(size=(101, 100)))
+
+    body = assert_problem(response, 400)
+    assert body["detail"] == "The image must not have more than 10000 pixels."
+
+
+def test_missing_image_field_is_a_problem_without_the_content(client: TestClient):
+    response = upload(client, b"SECRET payload", field="file")
+
+    body = assert_problem(response, 422)
+    assert "body.image" in body["detail"]
+    assert "SECRET" not in response.text
+
+
+def test_unknown_path_is_a_problem(client: TestClient):
+    body = assert_problem(client.get("/nothing-here"), 404)
+
+    assert body["instance"] == "/nothing-here"
+
+
+def test_wrong_method_is_a_problem(client: TestClient):
+    assert_problem(client.get(CLASSIFY_URL), 405)
+
+
+def test_unexpected_error_is_a_problem_without_details(
+    make_client: ClientFactory, caplog: pytest.LogCaptureFixture
+):
+    client = make_client(load_predictor=lambda _: BrokenPredictor())
+
+    response = upload(client, encoded_image())
+
+    body = assert_problem(response, 500)
+    assert body["detail"] == "An internal error occurred."
+    assert "SECRET" not in response.text
+    assert "Unexpected error" in caplog.text
+
+
+def test_rate_limit_rejects_requests_over_the_limit(make_client: ClientFactory):
+    client = make_client(rate_limit_per_minute=2)
+
+    statuses = [upload(client, encoded_image()).status_code for _ in range(2)]
+    response = upload(client, encoded_image())
+
+    body = assert_problem(response, 429)
+    assert statuses == [200, 200]
+    assert body["detail"] == "Too many requests. Try again later."
+    assert 1 <= int(response.headers["retry-after"]) <= 60
+
+
+def test_rate_limit_counts_rejected_uploads(make_client: ClientFactory):
+    client = make_client(rate_limit_per_minute=1)
+
+    first = upload(client, b"not an image")
+    second = upload(client, encoded_image())
+
+    assert first.status_code == 400
+    assert second.status_code == 429
+
+
+def test_rate_limit_does_not_apply_to_health_checks(make_client: ClientFactory):
+    client = make_client(rate_limit_per_minute=1)
+    upload(client, encoded_image())
+
+    assert client.get("/health/live").status_code == 200
+    assert client.get("/health/ready").status_code == 200
+
+
+def test_no_rate_limit_by_default(client: TestClient):
+    statuses = {upload(client, encoded_image(size=(64, 64))).status_code for _ in range(5)}
+
+    assert statuses == {200}
