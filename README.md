@@ -18,7 +18,8 @@ In development.
 | Comparison of two improvements on the validation split; label smoothing kept | Done |
 | ONNX export of the final model with a parity check against PyTorch | Done |
 | Image preprocessing without PyTorch, ONNX predictor and "unsure" confidence threshold | Done |
-| FastAPI service, web page and Docker image | Planned |
+| Classification API (FastAPI) with upload validation and health checks | Done |
+| Web page and Docker image | Planned |
 
 ## Development setup
 
@@ -156,3 +157,52 @@ print(prediction.category, prediction.top, prediction.unsure)
 ```bash
 wastevision threshold
 ```
+
+## Classification API
+
+Start the service on port 8000 (it loads the model from `models/` once at start-up):
+
+```bash
+uvicorn wastevision.web.app:create_app --factory --port 8000
+```
+
+Classify a photo:
+
+```bash
+curl -F "image=@photo.jpg;type=image/jpeg" http://localhost:8000/api/v1/classify
+```
+
+Example response (the numbers depend on the photo):
+
+```json
+{
+  "category": "Glass",
+  "label": "glass",
+  "confidence": 0.87,
+  "unsure": false,
+  "top3": [
+    {"label": "glass", "probability": 0.87},
+    {"label": "plastic", "probability": 0.06},
+    {"label": "metal", "probability": 0.03}
+  ]
+}
+```
+
+| Endpoint | Purpose |
+|:--|:--|
+| `POST /api/v1/classify` | Multipart form with one field `image` (JPEG, PNG or WebP) |
+| `GET /health/live` | The process is running |
+| `GET /health/ready` | The model is loaded; answers 503 if it could not be loaded |
+
+Uploads are checked before the image is decoded: the content type must be `image/jpeg`, `image/png` or `image/webp` and match the file content (otherwise 415), the file must not be larger than 5 MB (413), and the image must not have more than 40 megapixels (400). The pixel count is read from the file header, and Pillow's own decompression-bomb limit is set to the same value. Then Pillow verifies the file and decodes it again; a file that cannot be read gives 400. Errors are returned as problem details (RFC 9457, `application/problem+json`) with a short description; they never repeat the uploaded content.
+
+The service is configured with environment variables:
+
+| Variable | Default | Meaning |
+|:--|:--|:--|
+| `WASTEVISION_MODELS_DIR` | `models` | Folder with the ONNX model and `metadata.json` |
+| `WASTEVISION_MAX_UPLOAD_BYTES` | `5242880` (5 MB) | Largest accepted upload |
+| `WASTEVISION_MAX_IMAGE_PIXELS` | `40000000` | Largest accepted width × height |
+| `WASTEVISION_RATE_LIMIT_PER_MINUTE` | `0` (off) | Classification requests allowed per client address per minute |
+
+The rate limit is basic protection only: it counts requests per client address in one-minute windows inside a single process, so every worker process counts separately, the count is lost on restart, and behind a reverse proxy the client address is only correct if uvicorn is set up to trust the proxy's forwarded headers. The size limit is checked after the upload has been received, so a public deployment should also limit the request body size in its reverse proxy. The API has no authentication, because it is a public demo that stores nothing.
