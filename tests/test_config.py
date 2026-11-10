@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import pytest
 from pydantic import ValidationError
 
@@ -28,6 +30,49 @@ def test_settings_read_num_workers_from_environment(monkeypatch: pytest.MonkeyPa
 
 def test_settings_reject_negative_num_workers(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("WASTEVISION_NUM_WORKERS", "-1")
+
+    with pytest.raises(ValidationError):
+        Settings()
+
+
+def test_settings_default_service_limits(monkeypatch: pytest.MonkeyPatch):
+    for name in ("MODELS_DIR", "MAX_UPLOAD_BYTES", "MAX_IMAGE_PIXELS", "RATE_LIMIT_PER_MINUTE"):
+        monkeypatch.delenv(f"WASTEVISION_{name}", raising=False)
+
+    settings = Settings()
+
+    assert settings.models_dir == Path("models")
+    assert settings.max_upload_bytes == 5 * 1024 * 1024
+    assert settings.max_image_pixels == 40_000_000
+    assert settings.rate_limit_per_minute == 0
+
+
+def test_settings_read_service_limits_from_environment(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv("WASTEVISION_MODELS_DIR", "/srv/models")
+    monkeypatch.setenv("WASTEVISION_MAX_UPLOAD_BYTES", "1000")
+    monkeypatch.setenv("WASTEVISION_MAX_IMAGE_PIXELS", "2000")
+    monkeypatch.setenv("WASTEVISION_RATE_LIMIT_PER_MINUTE", "30")
+
+    settings = Settings()
+
+    assert settings.models_dir == Path("/srv/models")
+    assert settings.max_upload_bytes == 1000
+    assert settings.max_image_pixels == 2000
+    assert settings.rate_limit_per_minute == 30
+
+
+@pytest.mark.parametrize(
+    ("name", "value"),
+    [
+        ("MAX_UPLOAD_BYTES", "0"),
+        ("MAX_IMAGE_PIXELS", "0"),
+        ("RATE_LIMIT_PER_MINUTE", "-1"),
+    ],
+)
+def test_settings_reject_invalid_service_limits(
+    monkeypatch: pytest.MonkeyPatch, name: str, value: str
+):
+    monkeypatch.setenv(f"WASTEVISION_{name}", value)
 
     with pytest.raises(ValidationError):
         Settings()
