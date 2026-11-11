@@ -1,6 +1,6 @@
 # Waste Sorting Vision
 
-Waste Sorting Vision is an image classification service that tells you which recycling category a photographed household item belongs to: cardboard, glass, metal and cans, paper, plastic, or other waste. It compares a classical image-processing baseline with a fine-tuned convolutional neural network, and evaluates both honestly, including on real photos taken outside the lab. The final model will be served through a tested FastAPI service and a simple web page, packaged with Docker.
+Waste Sorting Vision is an image classification service that tells you which recycling category a photographed household item belongs to: cardboard, glass, metal and cans, paper, plastic, or other waste. It compares a classical image-processing baseline with a fine-tuned convolutional neural network, and evaluates both honestly, including on real photos taken outside the lab. The final model is served through a tested FastAPI service and a simple web page, and will be packaged with Docker.
 
 ## Status
 
@@ -19,7 +19,8 @@ In development.
 | ONNX export of the final model with a parity check against PyTorch | Done |
 | Image preprocessing without PyTorch, ONNX predictor and "unsure" confidence threshold | Done |
 | Classification API (FastAPI) with upload validation and health checks | Done |
-| Web page and Docker image | Planned |
+| Web page with photo upload, result and sorting hints | Done |
+| Docker image | Planned |
 
 ## Development setup
 
@@ -206,3 +207,11 @@ The service is configured with environment variables:
 | `WASTEVISION_RATE_LIMIT_PER_MINUTE` | `0` (off) | Classification requests allowed per client address per minute |
 
 The rate limit is basic protection only: it counts requests per client address in one-minute windows inside a single process, so every worker process counts separately, the count is lost on restart, and behind a reverse proxy the client address is only correct if uvicorn is set up to trust the proxy's forwarded headers. The size limit is checked after the upload has been received, so a public deployment should also limit the request body size in its reverse proxy. The API has no authentication, because it is a public demo that stores nothing.
+
+## Web page
+
+The same service serves a web page at `http://localhost:8000/` (start it with the command above). Choose or take a photo, press Classify, and the page shows the category, a confidence bar, the three most likely classes and a short generic sorting hint. If the confidence is below the threshold stored in `models/metadata.json`, the page says it is not sure and shows only the best guess.
+
+The page is a normal HTML form: it works without JavaScript, and the result is a page returned by the server. A small optional script only shows a preview of the chosen photo. Uploads go through the same validation, limits and rate limit as the API; problems are shown on the page with the same status codes. The uploaded photo is not stored and not shown again.
+
+The sorting hints are general advice. Recycling rules differ between cities and collection services, so check your local rules.
