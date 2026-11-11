@@ -1,6 +1,12 @@
 import pytest
 
-from wastevision.labels import CATEGORY_BY_CLASS, CLASS_NAMES, category_for
+from wastevision.labels import (
+    CATEGORY_BY_CLASS,
+    CLASS_NAMES,
+    SORTING_HINT_BY_CLASS,
+    category_for,
+    sorting_hint_for,
+)
 
 
 def test_there_are_six_classes():
@@ -37,3 +43,21 @@ def test_category_for_known_class(class_name, category):
 def test_category_for_unknown_class_raises():
     with pytest.raises(ValueError, match="Unknown class name"):
         category_for("wood")
+
+
+def test_every_class_has_a_sorting_hint():
+    assert set(SORTING_HINT_BY_CLASS) == set(CLASS_NAMES)
+
+
+def test_sorting_hints_are_generic_and_not_empty():
+    assert all(hint.strip() for hint in SORTING_HINT_BY_CLASS.values())
+    assert len(set(SORTING_HINT_BY_CLASS.values())) == len(CLASS_NAMES)
+
+
+def test_sorting_hint_for_known_class():
+    assert sorting_hint_for("glass") == SORTING_HINT_BY_CLASS["glass"]
+
+
+def test_sorting_hint_for_unknown_class_raises():
+    with pytest.raises(ValueError, match="Unknown class name"):
+        sorting_hint_for("wood")
