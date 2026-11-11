@@ -2,6 +2,7 @@ from http import HTTPStatus
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, Request, UploadFile
+from PIL import Image
 from pydantic import BaseModel
 
 from wastevision.inference.predictor import Prediction, Predictor
@@ -61,6 +62,14 @@ def loaded_predictor(request: Request) -> Predictor:
     return predictor
 
 
+def decode_upload(request: Request, upload: UploadFile) -> Image.Image:
+    settings = request.app.state.settings
+    data = upload.file.read(settings.max_upload_bytes + 1)
+    return validate_upload(
+        data, upload.content_type, settings.max_upload_bytes, settings.max_image_pixels
+    )
+
+
 @router.post(
     "/api/v1/classify",
     response_model=ClassificationResponse,
@@ -71,11 +80,7 @@ def classify(
     image: Annotated[UploadFile, File()],
     predictor: Annotated[Predictor, Depends(loaded_predictor)],
 ) -> ClassificationResponse:
-    settings = request.app.state.settings
-    data = image.file.read(settings.max_upload_bytes + 1)
-    picture = validate_upload(
-        data, image.content_type, settings.max_upload_bytes, settings.max_image_pixels
-    )
+    picture = decode_upload(request, image)
     return ClassificationResponse.from_prediction(predictor.predict(picture))
 
 

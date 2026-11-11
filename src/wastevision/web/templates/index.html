@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Waste Sorting Vision</title>
+  <link rel="stylesheet" href="{{ url_for('static', path='style.css') }}">
+  <script src="{{ url_for('static', path='preview.js') }}" defer></script>
+</head>
+<body>
+  <main>
+    <h1>Waste Sorting Vision</h1>
+    <p class="lead">Take or choose a photo of one item, and find out which recycling category it most likely belongs to.</p>
+
+    <form method="post" action="/" enctype="multipart/form-data" class="card">
+      <label for="image">Photo of the item</label>
+      <input type="file" id="image" name="image" accept="image/*" required aria-describedby="image-help">
+      <p id="image-help" class="help">JPEG, PNG or WebP, up to {{ max_megabytes }} MB. Photograph a single item on a plain background.</p>
+      <img id="preview" class="preview" alt="Preview of the selected photo" hidden>
+      <button type="submit">Classify</button>
+    </form>
+
+    {% if error %}
+    <section class="card error" role="alert" aria-labelledby="error-title">
+      <h2 id="error-title">The photo could not be classified</h2>
+      <p>{{ error }}</p>
+    </section>
+    {% endif %}
+
+    {% if result %}
+    <section class="card" aria-labelledby="result-title">
+      <h2 id="result-title">Result</h2>
+      {% if result.unsure %}
+      <p class="unsure"><strong>I am not sure about this one.</strong> Try another photo with better light, a plain background and the item filling most of the picture.</p>
+      <p>Best guess: <strong>{{ result.category }}</strong> ({{ result.percent }}%)</p>
+      {% else %}
+      <p class="category">{{ result.category }}</p>
+      <label for="confidence">Confidence: {{ result.percent }}%</label>
+      <meter id="confidence" min="0" max="1" value="{{ result.probability }}">{{ result.percent }}%</meter>
+      <p class="hint">{{ result.hint }}</p>
+      {% endif %}
+
+      <h3>Top three guesses</h3>
+      <ol class="top">
+        {% for entry in result.top %}
+        <li>
+          <span class="name">{{ entry.label }}</span>
+          <meter min="0" max="1" value="{{ entry.probability }}" aria-label="{{ entry.label }} probability">{{ entry.percent }}%</meter>
+          <span class="percent">{{ entry.percent }}%</span>
+        </li>
+        {% endfor %}
+      </ol>
+    </section>
+    {% endif %}
+
+    <p class="note">Recycling rules differ between cities and collection services. Treat this answer as a suggestion and check your local rules. The model was trained on photos of single items and can be wrong on cluttered pictures.</p>
+  </main>
+</body>
+</html>

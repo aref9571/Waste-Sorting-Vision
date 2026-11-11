@@ -4,12 +4,15 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
 from PIL import Image
 
 from wastevision import __version__
 from wastevision.config import Settings
 from wastevision.inference.predictor import Predictor
 from wastevision.web.api import router
+from wastevision.web.pages import STATIC_DIRECTORY
+from wastevision.web.pages import router as pages_router
 from wastevision.web.problems import add_problem_handlers
 from wastevision.web.rate_limit import RateLimiter
 
@@ -51,4 +54,6 @@ def create_app(
     app.state.rate_limiter = create_rate_limiter(settings)
     add_problem_handlers(app)
     app.include_router(router)
+    app.include_router(pages_router)
+    app.mount("/static", StaticFiles(directory=STATIC_DIRECTORY), name="static")
     return app
