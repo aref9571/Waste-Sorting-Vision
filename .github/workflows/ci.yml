@@ -30,3 +30,63 @@ jobs:
 
       - name: Run tests with coverage
         run: pytest --cov --cov-report=term-missing
+
+  lint-container-files:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Lint the Dockerfile
+        run: |
+          curl -sSfL -o hadolint https://github.com/hadolint/hadolint/releases/download/v2.12.0/hadolint-Linux-x86_64
+          chmod +x hadolint
+          ./hadolint Dockerfile
+
+      - name: Lint the workflows
+        run: |
+          curl -sSfL https://github.com/rhysd/actionlint/releases/download/v1.7.7/actionlint_1.7.7_linux_amd64.tar.gz | tar xz actionlint
+          ./actionlint
+
+  docker-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build the image
+        run: docker build --tag waste-sorting-vision:ci .
+
+      - name: Show the image size
+        run: docker image ls waste-sorting-vision:ci
+
+      - name: Check that the image has no PyTorch
+        run: |
+          if docker run --rm --entrypoint python waste-sorting-vision:ci -m pip show torch; then
+            echo "torch is installed in the image"
+            exit 1
+          fi
+
+      - name: Start the container
+        run: docker run --detach --name service --publish 8000:8000 waste-sorting-vision:ci
+
+      - name: Wait until the service is ready
+        run: |
+          for attempt in $(seq 1 30); do
+            if curl -sSf http://127.0.0.1:8000/health/ready; then
+              exit 0
+            fi
+            sleep 2
+          done
+          docker logs service
+          exit 1
+
+      - name: Classify the sample image
+        run: |
+          curl -sSf -F image=@tests/fixtures/sample.png http://127.0.0.1:8000/api/v1/classify | tee response.json
+          python3 -c "import json; body = json.load(open('response.json')); assert set(body) == {'category', 'label', 'confidence', 'unsure', 'top3'}, body; assert len(body['top3']) == 3, body"
+
+      - name: Fetch the web page
+        run: curl -sSf http://127.0.0.1:8000/ | grep -q "<form"
+
+      - name: Show the container logs
+        if: always()
+        run: docker logs service
