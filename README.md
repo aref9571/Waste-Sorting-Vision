@@ -215,3 +215,7 @@ The same service serves a web page at `http://localhost:8000/` (start it with th
 The page is a normal HTML form: it works without JavaScript, and the result is a page returned by the server. A small optional script only shows a preview of the chosen photo. Uploads go through the same validation, limits and rate limit as the API; problems are shown on the page with the same status codes. The uploaded photo is not stored and not shown again.
 
 The sorting hints are general advice. Recycling rules differ between cities and collection services, so check your local rules.
+
+## Licence
+
+The code is released under the MIT License, see [LICENSE](LICENSE). The datasets used for training and evaluation have their own licences, listed in [NOTICE.md](NOTICE.md).
