@@ -20,7 +20,7 @@ In development.
 | Image preprocessing without PyTorch, ONNX predictor and "unsure" confidence threshold | Done |
 | Classification API (FastAPI) with upload validation and health checks | Done |
 | Web page with photo upload, result and sorting hints | Done |
-| Docker image | Planned |
+| Docker image, compose file and container smoke test in CI | Done |
 
 ## Development setup
 
@@ -215,6 +215,25 @@ The same service serves a web page at `http://localhost:8000/` (start it with th
 The page is a normal HTML form: it works without JavaScript, and the result is a page returned by the server. A small optional script only shows a preview of the chosen photo. Uploads go through the same validation, limits and rate limit as the API; problems are shown on the page with the same status codes. The uploaded photo is not stored and not shown again.
 
 The sorting hints are general advice. Recycling rules differ between cities and collection services, so check your local rules.
+
+## Docker
+
+The image contains only the serving dependencies (no PyTorch, no scikit-learn) and the files in `models/`. It runs as a non-root user and listens on port 8000.
+
+```bash
+docker build --tag waste-sorting-vision .
+docker run --publish 8000:8000 waste-sorting-vision
+```
+
+Or with Compose:
+
+```bash
+docker compose up --build
+```
+
+Then open http://localhost:8000 or call the API as shown above. The container has a health check on `/health/ready`. Settings such as `WASTEVISION_RATE_LIMIT_PER_MINUTE` are passed as environment variables.
+
+CI builds the image, checks that PyTorch is not installed in it, starts the container, waits for `/health/ready`, classifies `tests/fixtures/sample.png` and checks the keys of the answer. The Dockerfile is checked with hadolint and the workflow with actionlint.
 
 ## Licence
 
