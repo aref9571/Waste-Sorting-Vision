@@ -21,6 +21,7 @@ In development.
 | Classification API (FastAPI) with upload validation and health checks | Done |
 | Web page with photo upload, result and sorting hints | Done |
 | Docker image, compose file and container smoke test in CI | Done |
+| Latency benchmark and faster decoding of large JPEG uploads | Done |
 
 ## Development setup
 
@@ -234,6 +235,15 @@ docker compose up --build
 Then open http://localhost:8000 or call the API as shown above. The container has a health check on `/health/ready`. Settings such as `WASTEVISION_RATE_LIMIT_PER_MINUTE` are passed as environment variables.
 
 CI builds the image, checks that PyTorch is not installed in it, starts the container, waits for `/health/ready`, classifies `tests/fixtures/sample.png` and checks the keys of the answer. The Dockerfile is checked with hadolint and the workflow with actionlint.
+
+## Performance
+
+A 64 × 48 image is classified in about 4 ms and a 12 megapixel JPEG in about 44 ms (single worker, 4 CPU cores, one request at a time). Most of the time for large photos is spent decoding and resizing, not in the network (1 to 2 ms), so JPEG uploads are decoded at a reduced size. See [docs/performance.md](docs/performance.md) for the setup, the percentiles and the cost of this change, and measure again with:
+
+```bash
+python scripts/benchmark.py service --synthetic 4000x3000
+python scripts/benchmark.py model --synthetic 4000x3000
+```
 
 ## Licence
 
