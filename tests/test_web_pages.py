@@ -10,6 +10,7 @@ from PIL import Image
 
 from wastevision.config import Settings
 from wastevision.inference.predictor import Prediction, Predictor, load_metadata
+from wastevision.inference.preprocess import Preprocessing
 from wastevision.labels import CATEGORY_BY_CLASS, CLASS_NAMES, SORTING_HINT_BY_CLASS
 from wastevision.web.app import create_app
 
@@ -22,6 +23,7 @@ ClientFactory = Callable[..., TestClient]
 class StubPredictor:
     def __init__(self, prediction: Prediction) -> None:
         self.prediction = prediction
+        self.preprocessing = Preprocessing()
 
     def predict(self, image: Image.Image) -> Prediction:
         return self.prediction

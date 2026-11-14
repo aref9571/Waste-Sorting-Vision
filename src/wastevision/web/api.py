@@ -66,7 +66,11 @@ def decode_upload(request: Request, upload: UploadFile) -> Image.Image:
     settings = request.app.state.settings
     data = upload.file.read(settings.max_upload_bytes + 1)
     return validate_upload(
-        data, upload.content_type, settings.max_upload_bytes, settings.max_image_pixels
+        data,
+        upload.content_type,
+        settings.max_upload_bytes,
+        settings.max_image_pixels,
+        loaded_predictor(request).preprocessing.resize,
     )
 
 

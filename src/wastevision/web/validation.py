@@ -54,13 +54,17 @@ def check_pixel_count(size: tuple[int, int], max_pixels: int) -> None:
         )
 
 
-def decode_image(data: bytes, wanted_format: str, max_pixels: int) -> Image.Image:
+def decode_image(
+    data: bytes, wanted_format: str, max_pixels: int, reduce_to_side: int | None = None
+) -> Image.Image:
     try:
         with Image.open(BytesIO(data)) as header:
             check_format(header.format, wanted_format)
             check_pixel_count(header.size, max_pixels)
             header.verify()
         image = Image.open(BytesIO(data))
+        if reduce_to_side is not None:
+            image.draft(None, (reduce_to_side, reduce_to_side))
         image.load()
     except DECODE_ERRORS:
         raise ProblemError(
@@ -74,7 +78,8 @@ def validate_upload(
     content_type: str | None,
     max_bytes: int,
     max_pixels: int,
+    reduce_to_side: int | None = None,
 ) -> Image.Image:
     wanted_format = expected_format(content_type)
     check_upload_size(data, max_bytes)
-    return decode_image(data, wanted_format, max_pixels)
+    return decode_image(data, wanted_format, max_pixels, reduce_to_side)

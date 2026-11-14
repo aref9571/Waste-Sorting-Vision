@@ -211,3 +211,38 @@ def test_decode_image_error_never_contains_the_file_content():
 
     assert "SECRET" not in raised.value.detail
     assert "SECRET" not in str(raised.value)
+
+
+def test_decode_image_shrinks_a_large_jpeg_but_keeps_the_requested_side():
+    image = decode_image(encoded_image("JPEG", (2000, 1500)), "JPEG", MAX_PIXELS, 256)
+
+    assert image.size == (500, 375)
+    assert min(image.size) >= 256
+
+
+def test_decode_image_never_shrinks_below_the_requested_side():
+    image = decode_image(encoded_image("JPEG", (600, 400)), "JPEG", MAX_PIXELS, 256)
+
+    assert image.size == (600, 400)
+
+
+def test_decode_image_keeps_the_full_size_without_a_reduction_side():
+    image = decode_image(encoded_image("JPEG", (2000, 1500)), "JPEG", MAX_PIXELS)
+
+    assert image.size == (2000, 1500)
+
+
+@pytest.mark.parametrize("image_format", ["PNG", "WEBP"])
+def test_decode_image_does_not_shrink_other_formats(image_format: str):
+    image = decode_image(encoded_image(image_format, (2000, 1500)), image_format, MAX_PIXELS, 256)
+
+    assert image.size == (2000, 1500)
+
+
+def test_decode_image_still_rejects_a_truncated_jpeg_when_reducing():
+    data = encoded_image("JPEG", (2000, 1500))
+
+    with pytest.raises(ProblemError) as raised:
+        decode_image(data[: len(data) // 2], "JPEG", MAX_PIXELS, 256)
+
+    assert raised.value.status == HTTPStatus.BAD_REQUEST

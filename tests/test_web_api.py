@@ -131,6 +131,34 @@ def test_classify_matches_the_predictor(client: TestClient, committed_predictor:
     assert [entry["label"] for entry in body["top3"]] == [label for label, _ in expected.top]
 
 
+def gradient_jpeg(size: tuple[int, int]) -> bytes:
+    columns = np.linspace(20, 230, size[0], dtype=np.float32)
+    rows = np.linspace(40, 200, size[1], dtype=np.float32)
+    pixels = np.stack(
+        [
+            np.add.outer(rows * 0.2, columns * 0.7),
+            np.add.outer(rows * 0.5, columns * 0.2),
+            np.add.outer(rows * 0.3, columns * 0.4),
+        ],
+        axis=-1,
+    ).astype(np.uint8)
+    buffer = BytesIO()
+    Image.fromarray(pixels).save(buffer, format="JPEG", quality=90)
+    return buffer.getvalue()
+
+
+def test_classify_of_a_large_jpeg_stays_close_to_full_resolution_decoding(
+    client: TestClient, committed_predictor: Predictor
+):
+    data = gradient_jpeg((2400, 1800))
+
+    body = upload(client, data, "image/jpeg").json()
+    expected = committed_predictor.predict(Image.open(BytesIO(data)))
+
+    assert body["label"] == expected.label
+    assert body["confidence"] == pytest.approx(expected.confidence, abs=0.05)
+
+
 @pytest.mark.parametrize(("threshold", "unsure"), [(1.0, True), (0.0, False)])
 def test_classify_reports_unsure_below_the_threshold(
     make_client: ClientFactory, threshold: float, unsure: bool
