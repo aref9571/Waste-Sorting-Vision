@@ -22,6 +22,7 @@ In development.
 | Web page with photo upload, result and sorting hints | Done |
 | Docker image, compose file and container smoke test in CI | Done |
 | Latency benchmark and faster decoding of large JPEG uploads | Done |
+| Model card with intended use, limits and ethical notes; evaluation summary | Done |
 
 ## Development setup
 
@@ -244,6 +245,10 @@ A 64 × 48 image is classified in about 4 ms and a 12 megapixel JPEG in about 44
 python scripts/benchmark.py service --synthetic 4000x3000
 python scripts/benchmark.py model --synthetic 4000x3000
 ```
+
+## Model card
+
+[docs/model-card.md](docs/model-card.md) states what the model is for and what it is not for, the data it was trained on and its biases, the results on the test split and on real-world photos, how the "unsure" answer behaves, the limitations, ethical considerations and an estimate of the energy used for training.
 
 ## Licence
 
