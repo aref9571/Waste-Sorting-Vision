@@ -1,5 +1,41 @@
 # Evaluation
 
+## Summary
+
+The final model is version 2: MobileNetV3-Small, pretrained on ImageNet and fine-tuned on TrashNet with class weights and label smoothing 0.1. The model card ([model-card.md](model-card.md)) describes its intended use and limits.
+
+| | Classical baseline | Version 1 | Version 2 (final) |
+|---|---|---|---|
+| TrashNet test accuracy | 0.730 | 0.868 | **0.892** |
+| TrashNet test macro-F1 | 0.720 | 0.819 | **0.867** |
+| RealWaste accuracy | not measured | 0.484 | 0.432 |
+| RealWaste macro-F1 | not measured | 0.456 | 0.426 |
+| Test expected calibration error | not measured | 0.069 | 0.147 |
+| RealWaste expected calibration error | not measured | 0.353 | 0.108 |
+
+- On photos like its training data, the network clearly beats the hand-crafted baseline, and label smoothing improved the weakest class (trash F1 0.450 to 0.640).
+- On photos from a different place (RealWaste), accuracy is below 0.5 for both versions. The test split overstates real-world accuracy, because it comes from the same collection as the training images.
+- Version 1 is overconfident and version 2 is underconfident. The "unsure" threshold (0.4131) was chosen on validation for version 2 and answers 91.3% of the test images, 93.9% of them correctly.
+- The test split was used twice (once per version) and the RealWaste photos were used for measurement only. Nothing was chosen from either.
+- The error analysis, Grad-CAM figures and robustness checks were done for version 1 and not repeated for version 2.
+
+### Where the numbers come from
+
+| Result | Section | Command |
+|---|---|---|
+| Baseline validation table and test result | [Classical baseline](#classical-baseline) | `wastevision baseline train`, `wastevision baseline evaluate` |
+| Version 1 training and validation results | [Neural network](#neural-network) | `wastevision train --stage head`, `--stage full` (add `--label-smoothing 0`) |
+| Version 1 test result and calibration | [Test result](#test-result-1), [Calibration](#calibration) | `wastevision evaluate` |
+| Error analysis and Grad-CAM (version 1) | [Error analysis](#error-analysis) | `wastevision error-analysis --mistakes 16` |
+| Robustness (version 1) | [Robustness to image changes](#robustness-to-image-changes) | `wastevision robustness` |
+| RealWaste results | [Real-world photos](#real-world-photos-realwaste) | `wastevision evaluate-real` |
+| Version comparison and version 2 results | [Model versions](#model-versions) | the commands under [Reproduce the model comparison](#reproduce-the-model-comparison) |
+| Confidence threshold | [Confidence threshold](#confidence-threshold-unsure-answer) | `wastevision threshold` |
+| Parity with the ONNX model, final metrics stored with the model | [models/metadata.json](../models/metadata.json) | `wastevision export` |
+| Speed | [performance.md](performance.md) | `python scripts/benchmark.py` |
+
+Every command is run from the repository root with `pip install -e ".[train,dev]"` and the downloaded dataset. The numbers in the tables above are copied from the output of these commands on the dates given in each section.
+
 All results use the fixed split in [splits/trashnet-split.csv](../splits/trashnet-split.csv) (SHA-256 `29db88fff705dfe6ee2ca24eec9e99fe4d494f4ecea9bdb36b06a39f4907e419`, 1,765 train, 378 validation and 378 test images, see [dataset.md](dataset.md)). Models and settings are chosen on the validation split only. Each final model is evaluated once on the test split. The main metric is macro-F1, because the classes are imbalanced (the test split has 21 trash images and 89 paper images).
 
 ## Classical baseline
@@ -233,7 +269,7 @@ wastevision error-analysis --mistakes 16
 
 ## Real-world photos and robustness
 
-The test split comes from the same collection as the training images: single objects on a white posterboard, photographed in the same way. This section measures how much of the test accuracy is left when the images change. It uses two checks: small changes to the test images themselves (robustness), and photos from a different collection taken in a real waste facility (domain shift). Both checks only measure the final model from the sections above; nothing was trained or chosen with them.
+The test split comes from the same collection as the training images: single objects on a white posterboard, photographed in the same way. This section measures how much of the test accuracy is left when the images change. It uses two checks: small changes to the test images themselves (robustness), and photos from a different collection taken in a real waste facility (domain shift). Both checks only measure models; nothing was trained or chosen with them. The robustness check was run for version 1 and not repeated for version 2. The RealWaste check was run for both versions, and the version 2 results are in [Model versions](#model-versions).
 
 ### Robustness to image changes
 
